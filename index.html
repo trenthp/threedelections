@@ -30,6 +30,31 @@
         <p class="hint" id="year-hint" hidden></p>
       </div>
 
+      <div class="control" id="scale-row">
+        <span class="label">Scale</span>
+        <div class="seg" id="scale" role="radiogroup" aria-label="Height scale">
+          <button data-v="linear">Linear</button>
+          <button data-v="sqrt">Square root</button>
+          <button data-v="log">Log</button>
+        </div>
+      </div>
+
+      <div class="control">
+        <span class="label">Color</span>
+        <div class="seg" id="color" role="radiogroup" aria-label="Color encoding">
+          <button data-v="margin">Margin</button>
+          <button data-v="weighted">Weighted</button>
+          <button data-v="radial">Radial</button>
+          <button data-v="winner">Winner</button>
+        </div>
+        <p class="hint" id="color-hint"></p>
+      </div>
+
+      <div class="control">
+        <label class="label" for="exag">Exaggeration <output id="exag-out">1.0×</output></label>
+        <input type="range" id="exag" min="0.2" max="5" step="0.1" value="1" />
+      </div>
+
       <div class="control">
         <span class="label">Height</span>
         <div class="seg" id="measure" role="radiogroup" aria-label="Height">
@@ -37,29 +62,7 @@
           <button data-v="votes">Votes</button>
           <button data-v="net">Net margin</button>
         </div>
-      </div>
-
-      <div class="control row" id="scale-row">
-        <span class="label">Scale</span>
-        <div class="seg" id="scale" role="radiogroup" aria-label="Height scale">
-          <button data-v="linear">Linear</button>
-          <button data-v="sqrt">√</button>
-          <button data-v="log">Log</button>
-        </div>
-      </div>
-      <p class="hint" id="mode-hint"></p>
-
-      <div class="control">
-        <label class="label" for="exag">Exaggeration <output id="exag-out">1.0×</output></label>
-        <input type="range" id="exag" min="0.2" max="5" step="0.1" value="1" />
-      </div>
-
-      <div class="control row">
-        <span class="label">Color</span>
-        <div class="seg" id="color" role="radiogroup" aria-label="Color encoding">
-          <button data-v="margin">Margin</button>
-          <button data-v="winner">Winner</button>
-        </div>
+        <p class="hint" id="mode-hint"></p>
       </div>
 
       <div class="control row">
@@ -85,6 +88,42 @@
       </section>
 
       <details class="about">
+        <summary>How to read the controls</summary>
+        <dl>
+          <dt>Election</dt>
+          <dd>Picks the race. 2026 is a House midterm with lower turnout than a presidential year, so blocks are shorter and circles smaller.</dd>
+          <dt>Scale</dt>
+          <dd>
+            How vote density turns into height. <strong>Linear</strong> is the most literal: block volume is proportional
+            to votes, so a few big cities tower over everything. <strong>Square root</strong> tames the tallest counties so
+            mid-sized ones are visible too. <strong>Log</strong> spreads out the smallest counties. Scale has no effect when
+            Height is Flat 2D.
+          </dd>
+          <dt>Color</dt>
+          <dd>
+            <strong>Margin</strong> colors every county by how lopsided its result was, so large, sparse counties take up a lot
+            of the map. <strong>Weighted</strong> fades sparsely populated counties toward gray, so color strength follows where
+            people vote. <strong>Radial</strong> draws a circle in each county whose area is proportional to its votes, so the
+            amount of color matches the amount of voters. <strong>Winner</strong> uses a solid party color, however close the race.
+          </dd>
+          <dt>Exaggeration</dt>
+          <dd>Stretches every block's height by the same factor. It makes short counties easier to see without changing how they compare.</dd>
+          <dt>Height</dt>
+          <dd>
+            <strong>Flat 2D</strong> is a standard map. <strong>Votes</strong> raises each county by votes cast per square mile.
+            <strong>Net margin</strong> raises it by the winner's vote lead per square mile, so close races stay low even in big cities.
+          </dd>
+          <dt>View</dt>
+          <dd>Camera presets. Drag to rotate, right-drag to pan, scroll to zoom, and press <kbd>Space</kbd> to switch between flat and 3D.</dd>
+        </dl>
+        <p class="about-tip">
+          Height and color can both show how many people voted. For the most balanced picture, pair <strong>Votes</strong>
+          height with <strong>Radial</strong> or <strong>Weighted</strong> color. For the familiar election-night map, use
+          <strong>Flat 2D</strong> with <strong>Margin</strong>. The Land area and Votes bars above compare the two directly.
+        </p>
+      </details>
+
+      <details class="about">
         <summary>About the data</summary>
         <ul>
           <li>2020 and 2024 county results: <a href="https://github.com/tonmcg/US_County_Level_Election_Results_08-24" target="_blank" rel="noopener">tonmcg/US_County_Level_Election_Results</a>. Boundaries: U.S. Census Bureau via <a href="https://github.com/topojson/us-atlas" target="_blank" rel="noopener">us-atlas</a>. Land area is computed from each county's real geographic area, not its on-screen size.</li>
@@ -98,10 +137,7 @@
       </details>
     </aside>
 
-    <div class="legend" id="legend" aria-hidden="true">
-      <div class="legend-ramp" id="legend-ramp"></div>
-      <div class="legend-labels"><span>D+70</span><span>Even</span><span>R+70</span></div>
-    </div>
+    <div class="legend" id="legend" aria-hidden="true"></div>
 
     <div class="tooltip" id="tooltip" role="status" hidden></div>
 

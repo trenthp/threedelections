@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildCountyGeometry, buildLineGeometry, createMaterials, TEX_W, TEX_H } from './geometry.js';
-import { colorForMargin, legendGradient, NO_DATA, MARGIN_CAP } from './colors.js';
+import { buildCountyGeometry, buildLineGeometry, createMaterials, TEX_W, TEX_H, AUX_OFFSET } from './geometry.js';
+import {
+  colorForCounty, marginColor, radialFill, densityWeight, legendGradient, winnerGradient, radialSwatch, toCss,
+  NO_DATA, EMPTY, MARGIN_CAP, WEIGHT_FULL_DENSITY, RADIAL_FULL_DENSITY,
+} from './colors.js';
 
 // Height = measure (what) on a scale (how). The hint describes the combination.
 const MEASURE_HINTS = {
@@ -11,6 +14,14 @@ const MEASURE_HINTS = {
 const SCALE_HINTS = {
   sqrt: 'on a square-root scale. This compresses the tallest counties so smaller differences are easier to see.',
   log: 'on a log scale. This spreads out differences among the least dense counties.',
+};
+
+const fmtInt = new Intl.NumberFormat('en-US');
+const COLOR_HINTS = {
+  margin: 'Color shows the margin: the deeper the color, the more lopsided the result.',
+  weighted: `Color shows the margin, and its strength shows how many people vote there. Sparsely populated counties fade toward gray; color is at full strength at ${fmtInt.format(WEIGHT_FULL_DENSITY)}+ votes per square mile.`,
+  radial: `Each county has a circle at its center whose area is proportional to its votes cast. Sparse counties show a small dot; counties with ${fmtInt.format(RADIAL_FULL_DENSITY)}+ votes per square mile fill completely.`,
+  winner: 'Solid color for whoever won the county, however close the margin.',
 };
 
 function modeHint() {
@@ -25,11 +36,12 @@ const ANIM_MS = 1100;
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const state = {
-  year: 2024,
+  year: 2026,
   measure: 'flat',
   lastMeasure: 'votes',
-  scale: 'linear',
-  color: 'margin',
+  scale: 'sqrt',
+  color: 'radial',
+  view: 'tilt',
   exaggeration: 1,
   hover: -1,
 };
@@ -80,6 +92,7 @@ const uniforms = {
   uHeightScale: { value: 1 },
   uHover: { value: -1 },
   uLightDir: { value: new THREE.Vector3(-0.45, -0.7, 0.55).normalize() },
+  uEmpty: { value: new THREE.Vector3(...EMPTY) },
 };
 const materials = createMaterials(uniforms);
 
@@ -110,7 +123,8 @@ async function load() {
   }
   data.maxDensity = maxDensity;
 
-  const { mesh, lines } = buildCountyGeometry(data);
+  const { mesh, lines, area, reach } = buildCountyGeometry(data);
+  data.shape = { area, reach };
   const prisms = new THREE.Mesh(mesh, materials.prism);
   prisms.frustumCulled = false;
   scene.add(prisms);
@@ -148,12 +162,28 @@ function heightFor(v) {
   }
 }
 
+/**
+ * Radius (world units) of a county's disc. The disc covers the same share of
+ * the footprint as radialFill(), so its area is proportional to votes cast. As
+ * the fill nears 1 the radius grows to the county's farthest corner so full
+ * counties are fully colored.
+ */
+function circleRadius(i, v) {
+  const f = radialFill(v.density);
+  const equal = Math.sqrt(data.shape.area[i] / Math.PI);
+  const full = 1.02 * data.shape.reach[i];
+  return Math.sqrt(f) * (equal + (full - equal) * f * f * f);
+}
+
 function writeTarget(arr) {
   const vals = derived[state.year];
+  const radial = state.color === 'radial' ? 1 : 0;
   for (let i = 0; i < vals.length; i++) {
     const v = vals[i];
-    const c = v ? colorForMargin(v.margin, state.color) : NO_DATA;
+    const c = v ? colorForCounty(v, state.color) : NO_DATA;
     arr.set([c[0], c[1], c[2], heightFor(v)], i * 4);
+    // The radius is written in every mode so switching to radial grows from the right size.
+    arr.set([v ? circleRadius(i, v) : 0, v ? radial : 0, 0, 0], (AUX_OFFSET + i) * 4);
   }
 }
 
@@ -254,7 +284,7 @@ function setupUI() {
   updateYearHint();
   syncMeasure = setupSeg('measure', 'measure', (v) => setMeasure(v));
   setupSeg('scale', 'scale', (v) => { state.scale = v; updateModeUI(); transition(); });
-  setupSeg('color', 'color', (v) => { state.color = v; transition(); });
+  setupSeg('color', 'color', (v) => { state.color = v; transition(); updateColorUI(); });
   const syncView = setupSeg('view', 'view', (v) => { state.view = v; flyTo(v); });
   controls.addEventListener('start', () => { state.view = null; syncView(); });
 
@@ -265,11 +295,7 @@ function setupUI() {
     $('exag-out').textContent = `${state.exaggeration.toFixed(1)}×`;
   });
 
-  $('legend-ramp').style.background = legendGradient();
-  const capLabel = Math.round(MARGIN_CAP * 100);
-  const labels = $('legend').querySelectorAll('.legend-labels span');
-  labels[0].textContent = `D+${capLabel}`;
-  labels[2].textContent = `R+${capLabel}`;
+  updateColorUI();
 
   window.addEventListener('keydown', (e) => {
     if (e.code !== 'Space' || e.target.closest('input, button, summary, a')) return;
@@ -316,6 +342,40 @@ function setupUI() {
     pointer.inside = false;
     setHover(-1);
   });
+}
+
+// Legend rows for weighted mode: example densities (votes / sq mi) from full color down to the floor.
+const WEIGHT_ROWS = [WEIGHT_FULL_DENSITY, 30, 1];
+// Swatches for radial mode, in votes / sq mi.
+const RADIAL_SWATCHES = [5, 30, RADIAL_FULL_DENSITY];
+
+function updateColorUI() {
+  const mode = state.color;
+  $('color-hint').textContent = COLOR_HINTS[mode];
+  const cap = Math.round(MARGIN_CAP * 100);
+  const labels = mode === 'winner' ? ['D won', '', 'R won'] : [`D+${cap}`, 'Even', `R+${cap}`];
+  const labelHtml = `<div class="legend-labels">${labels.map((l) => `<span>${l}</span>`).join('')}</div>`;
+  const density = (d, full) => `${fmtInt.format(d)}${d === full ? '+' : ''}`;
+  let html;
+  if (mode === 'weighted') {
+    html =
+      `<div class="legend-title">Votes per sq mi</div>` +
+      WEIGHT_ROWS.map((d) =>
+        `<div class="legend-grid-row"><div class="legend-ramp" style="background:${legendGradient(densityWeight(d))}"></div><span>${density(d, WEIGHT_FULL_DENSITY)}</span></div>`,
+      ).join('') +
+      `<div class="legend-grid-row">${labelHtml}<span></span></div>`;
+  } else if (mode === 'radial') {
+    const sample = marginColor(-0.4);
+    html =
+      `<div class="legend-ramp" style="background:${legendGradient()}"></div>${labelHtml}` +
+      `<div class="legend-title legend-gap">Circle area ∝ votes cast</div>` +
+      `<div class="legend-swatches">${RADIAL_SWATCHES.map((d) =>
+        `<div><div class="legend-swatch" style="background:${radialSwatch(sample, radialFill(d))}"></div><span>${density(d, RADIAL_FULL_DENSITY)}</span></div>`,
+      ).join('')}<span class="legend-unit">votes per<br>sq mi</span></div>`;
+  } else {
+    html = `<div class="legend-ramp" style="background:${mode === 'winner' ? winnerGradient() : legendGradient()}"></div>${labelHtml}`;
+  }
+  $('legend').innerHTML = html;
 }
 
 function updateYearHint() {
@@ -384,9 +444,8 @@ function refreshTooltip() {
   if (!v) {
     html += `<div class="tt-row muted">No reported results for this area</div>`;
   } else {
-    const col = colorForMargin(v.margin, 'margin').map((x) => Math.round(x * 255)).join(',');
     html +=
-      `<div class="tt-margin"><span class="chip" style="background:rgb(${col})"></span>${marginLabel(v.margin)} <span class="muted">${state.year} ${cand.race}</span></div>` +
+      `<div class="tt-margin"><span class="chip" style="background:${toCss(marginColor(v.margin))}"></span>${marginLabel(v.margin)} <span class="muted">${state.year} ${cand.race}</span></div>` +
       `<div class="tt-row"><span>${cand.d}</span><span>${pct(v.d / v.t)} · ${fmt.format(v.d)}</span></div>` +
       `<div class="tt-row"><span>${cand.r}</span><span>${pct(v.g / v.t)} · ${fmt.format(v.g)}</span></div>` +
       (v.t - v.g - v.d >= 0.005 * v.t ? `<div class="tt-row"><span>Other</span><span>${pct((v.t - v.g - v.d) / v.t)} · ${fmt.format(v.t - v.g - v.d)}</span></div>` : '') +

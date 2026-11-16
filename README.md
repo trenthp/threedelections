@@ -7,6 +7,17 @@ US presidential (2020, 2024) and House midterm (2026) results by county, in 3D. 
 - **Volume** = footprint × height = **votes cast**
 - **Color** = margin (blue ↔ gray ↔ red)
 
+Color options:
+
+- **Margin**: the plain margin ramp. Its ends stop at a vivid mid tone rather than near-black, so lopsided counties
+  don't carry extra visual weight just for being lopsided.
+- **Weighted**: margin color whose strength follows vote density (log scale, full at 1,000 votes/sq mi). Sparse
+  counties fade toward dark gray, so the color tracks where people vote rather than how much land there is.
+- **Radial**: each county has a sharp-edged circle at its center covering a share of the footprint equal to
+  density ÷ 300 votes/sq mi, so its **area is proportional to votes cast**. Combined with height, votes show up both
+  as volume and as colored area.
+- **Winner**: solid party color.
+
 Height options: **Flat 2D** (standard map), **Votes** (votes per sq mi) or **Net margin** (the leading candidate's vote
 lead per sq mi), on a **linear** (volume ∝ votes), **square-root** or **log** scale.
 
