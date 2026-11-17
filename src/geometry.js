@@ -82,7 +82,8 @@ function circleCenter(rings, area) {
  * county's circle center; the vertex shader lifts top vertices by the county's height.
  *
  * Also returns per-county shape metrics for the radial circle: `area` (world
- * units², all parts) and `reach` (farthest vertex of the main part from the center).
+ * units², all parts), `reach` (farthest vertex of the main part from the center)
+ * and `centers` (x, y pairs: where the circle and the pinned-county marker sit).
  */
 export function buildCountyGeometry(data) {
   const { coordScale: S, width, height } = data.meta;
@@ -100,6 +101,7 @@ export function buildCountyGeometry(data) {
   const n = data.counties.length;
   const area = new Float32Array(n);
   const reach = new Float32Array(n);
+  const centers = new Float32Array(n * 2);
   let v = 0;
   let center;
 
@@ -129,6 +131,8 @@ export function buildCountyGeometry(data) {
       if (a > mainArea) { mainArea = a; main = rings; }
     }
     center = main && main[0].length >= 3 ? circleCenter(main, mainArea) : { x: 0, y: 0 };
+    centers[id * 2] = center.x;
+    centers[id * 2 + 1] = center.y;
     for (const p of main?.[0] ?? []) reach[id] = Math.max(reach[id], Math.hypot(p.x - center.x, p.y - center.y));
 
     for (const rings of polys) {
@@ -184,7 +188,7 @@ export function buildCountyGeometry(data) {
   lines.setAttribute('aId', new THREE.BufferAttribute(new Uint16Array(lineIds), 1));
   lines.boundingSphere = bounds;
 
-  return { mesh, lines, vertexCount: v, area, reach };
+  return { mesh, lines, vertexCount: v, area, reach, centers };
 }
 
 /** Flat polylines (state borders, coastline) on the ground plane. */
@@ -316,6 +320,25 @@ out vec4 fragColor;
 void main() { fragColor = vec4(0.0, 0.0, 0.0, uOpacity); }
 `;
 
+// Outline of the pinned county only. Other counties' segments are moved outside
+// the clip volume so they're dropped before rasterizing.
+const SELECTED_VERT = /* glsl */ `${COMMON}
+uniform float uSelected;
+in vec2 position;
+in float aId;
+void main() {
+  if (abs(aId - uSelected) > 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  vec4 d = countyData(aId);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, d.a * uHeightScale + 0.05, 1.0);
+}
+`;
+
+const SELECTED_FRAG = /* glsl */ `
+precision highp float;
+out vec4 fragColor;
+void main() { fragColor = vec4(1.0, 1.0, 1.0, 0.95); }
+`;
+
 export function createMaterials(uniforms) {
   const shared = { glslVersion: THREE.GLSL3 };
   const prism = new THREE.RawShaderMaterial({
@@ -336,5 +359,15 @@ export function createMaterials(uniforms) {
     transparent: true,
     depthWrite: false,
   });
-  return { prism, pick, outline };
+  // Drawn without depth testing so the pinned county stays findable behind taller neighbors.
+  const selected = new THREE.RawShaderMaterial({
+    ...shared,
+    uniforms,
+    vertexShader: SELECTED_VERT,
+    fragmentShader: SELECTED_FRAG,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  return { prism, pick, outline, selected };
 }

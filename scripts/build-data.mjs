@@ -1,9 +1,15 @@
 // Builds public/data/election.json from public sources:
 //   - County shapes: us-atlas (US Census cartographic boundaries), counties-10m
-//   - County results: github.com/tonmcg/US_County_Level_Election_Results_08-24
+//   - 2020 and 2024 presidential: github.com/tonmcg/US_County_Level_Election_Results_08-24
+//   - 2004-2016 presidential and 2004-2026 House: NYT/AP results compiled by
+//     github.com/mike10010100/elections-2026 (one file, keys p04..p16, h04..h26)
+//   - Hawaii and DC gaps in that file: tonmcg's 2008-2016 county file
 //
 // Run with: npm run data
 // Raw downloads are cached in data-raw/ (git-ignored).
+//
+// Elections are keyed by id: "p2024" (presidential) or "h2022" (House), since
+// presidential years also have House races.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -15,35 +21,54 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = path.join(ROOT, 'data-raw');
 const OUT = path.join(ROOT, 'public', 'data', 'election.json');
 
-// 2016 is omitted: the source file is a pre-certification snapshot (e.g. CA is
-// ~1.4M votes short), so its totals don't match official results.
-const PRES_YEARS = [2020, 2024];
-const MIDTERM_YEAR = 2026;
-const YEARS = [...PRES_YEARS, MIDTERM_YEAR];
-
-// 2026 House results by county are UNOFFICIAL (counting/certification ongoing).
-// Source: NYT/AP results compiled by github.com/mike10010100/elections-2026,
-// pinned to a commit so builds are reproducible. To refresh, update the SHA and
-// date below, delete data-raw/2026-house.json, and run `npm run data`.
+// The multi-year file is pinned to a commit so builds are reproducible. 2026
+// is UNOFFICIAL (counting/certification ongoing). To refresh, update the SHA
+// and date below, delete data-raw/2026-house.json, and run `npm run data`.
 const MIDTERM_COMMIT = '4f04365b5675299cb8120de9b5e392ea9d55df58';
 const MIDTERM_AS_OF = '2026-11-15';
 
+const HOUSE = { race: 'House', d: 'Democrats', r: 'Republicans', ds: 'Dem.', rs: 'Rep.' };
+const pres = (d, r) => ({ race: 'presidential', d, r, sub: `${d} v. ${r}` });
+// source: 'tonmcg' (per-year CSV) or 'multi' (the multi-year file).
 const ELECTIONS = {
-  2020: { race: 'presidential', d: 'Biden', r: 'Trump', sub: 'Biden v. Trump' },
-  2024: { race: 'presidential', d: 'Harris', r: 'Trump', sub: 'Harris v. Trump' },
-  2026: { race: 'House', d: 'Democrats', r: 'Republicans', ds: 'Dem.', rs: 'Rep.', sub: 'House midterm', unofficial: true, asOf: MIDTERM_AS_OF },
+  p2004: { year: 2004, source: 'multi', ...pres('Kerry', 'Bush') },
+  p2008: { year: 2008, source: 'multi', ...pres('Obama', 'McCain') },
+  p2012: { year: 2012, source: 'multi', ...pres('Obama', 'Romney') },
+  p2016: { year: 2016, source: 'multi', ...pres('Clinton', 'Trump') },
+  p2020: { year: 2020, source: 'tonmcg', ...pres('Biden', 'Trump') },
+  p2024: { year: 2024, source: 'tonmcg', ...pres('Harris', 'Trump') },
+  ...Object.fromEntries(
+    [2004, 2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024, 2026].map((year) => [
+      `h${year}`,
+      {
+        year,
+        source: 'multi',
+        ...HOUSE,
+        sub: year % 4 ? 'House midterm' : 'House',
+        ...(year === 2026 ? { unofficial: true, asOf: MIDTERM_AS_OF } : {}),
+      },
+    ]),
+  ),
 };
+// Chronological; presidential before House within a year.
+const ORDER = Object.keys(ELECTIONS).sort((a, b) => ELECTIONS[a].year - ELECTIONS[b].year || a.localeCompare(b) * -1);
 
 const SOURCES = {
   'counties-10m.json': 'https://cdn.jsdelivr.net/npm/us-atlas@3.0.1/counties-10m.json',
   '2026-house.json': `https://raw.githubusercontent.com/mike10010100/elections-2026/${MIDTERM_COMMIT}/site_data/county_shifts.json`,
+  'pres-08-16.csv': 'https://raw.githubusercontent.com/tonmcg/US_County_Level_Election_Results_08-24/master/US_County_Level_Presidential_Results_08-16.csv',
   ...Object.fromEntries(
-    PRES_YEARS.map((y) => [
+    [2020, 2024].map((y) => [
       `${y}.csv`,
       `https://raw.githubusercontent.com/tonmcg/US_County_Level_Election_Results_08-24/master/${y}_US_County_Level_Presidential_Results.csv`,
     ]),
   ),
 };
+
+// The multi-year file has no Hawaii or DC presidential rows. tonmcg's 2008-2016
+// file fills Hawaii (within ~1% of certified totals) and DC 2008; its DC 2012
+// and 2016 rows are well short of certified totals, so they're left out.
+const PRES_FILL = { 2008: ['15', '11'], 2012: ['15'], 2016: ['15'] };
 
 const EARTH_RADIUS_MI = 3958.8;
 const COORD_SCALE = 10; // projected coords stored as ints in 0.1-unit steps
@@ -54,6 +79,7 @@ const FLAG_AK_STATEWIDE = 1; // Alaska reports by house district, not borough
 const FLAG_CT_REGIONS = 2; // CT 2024 reports by planning region, not county
 const FLAG_UNCONTESTED = 4; // a major party had no candidate on the ballot here
 const FLAG_PARTIAL = 8; // < PARTIAL_THRESHOLD of the expected vote counted
+const FLAG_NO_RACE = 16; // no House votes reported, usually an unopposed race left off the ballot (zero votes)
 const PARTIAL_THRESHOLD = 95;
 
 async function fetchCached(name) {
@@ -100,11 +126,12 @@ function parseCsv(text) {
 
 const num = (s) => Math.round(Number(String(s).replace(/,/g, '')) || 0);
 
-// 2026: { counties: { [fips]: { h26: { d, r, i (percent), v (total votes), eevp } } } }
-function loadMidterm(jsonText) {
+// Multi-year file: { counties: { [fips]: { p04 | h22 | ...: { d, r (percent), v (total votes), eevp? } } } }
+function loadMulti(src, id) {
+  const key = `${id[0]}${id.slice(3)}`; // p2004 -> p04
   const byFips = new Map();
-  for (const c of Object.values(JSON.parse(jsonText).counties)) {
-    const h = c.h26;
+  for (const c of Object.values(src.counties)) {
+    const h = c[key];
     if (!h || !h.v) continue;
     let flags = FLAG_NONE;
     if (h.d === 0 || h.r === 0) flags |= FLAG_UNCONTESTED;
@@ -119,6 +146,18 @@ function loadMidterm(jsonText) {
     });
   }
   return byFips;
+}
+
+/** Adds Hawaii/DC rows from tonmcg's 2008-2016 file where the multi-year file has none. */
+function fillPresidential(byFips, year, csvText) {
+  const states = PRES_FILL[year];
+  if (!states) return;
+  for (const r of parseCsv(csvText)) {
+    const fips = String(r.fips_code).padStart(5, '0');
+    if (!states.includes(fips.slice(0, 2)) || byFips.has(fips)) continue;
+    const t = num(r[`total_${year}`]);
+    if (t) byFips.set(fips, { g: num(r[`gop_${year}`]), d: num(r[`dem_${year}`]), t, state: fips.slice(0, 2) });
+  }
 }
 
 function loadResults(year, csvText) {
@@ -197,9 +236,17 @@ function quantize(flat, closed) {
 async function main() {
   console.log('Loading sources...');
   const topo = JSON.parse(await fetchCached('counties-10m.json'));
-  const resultsByYear = {};
-  for (const y of PRES_YEARS) resultsByYear[y] = loadResults(y, await fetchCached(`${y}.csv`));
-  resultsByYear[MIDTERM_YEAR] = loadMidterm(await fetchCached('2026-house.json'));
+  const multi = JSON.parse(await fetchCached('2026-house.json'));
+  const pres0816 = await fetchCached('pres-08-16.csv');
+  const sourceById = {};
+  for (const id of ORDER) {
+    const e = ELECTIONS[id];
+    if (e.source === 'tonmcg') sourceById[id] = loadResults(e.year, await fetchCached(`${e.year}.csv`));
+    else {
+      sourceById[id] = loadMulti(multi, id);
+      if (e.race === 'presidential') fillPresidential(sourceById[id], e.year, pres0816);
+    }
+  }
 
   const projection = geoAlbersUsa().scale(1300).translate([487.5, 305]);
   const stateNames = new Map(topo.objects.states.geometries.map((g) => [g.id, g.properties.name]));
@@ -232,8 +279,8 @@ async function main() {
   // results files have full ones ("Plaquemines Parish", "Richmond city"). Prefer
   // 2020 (CT still had counties; 2024 uses planning regions). Alaska's results are
   // by house district, so its boroughs keep the bare shape names.
-  for (const y of [...PRES_YEARS].sort()) {
-    for (const [fips, r] of resultsByYear[y]) {
+  for (const id of ['p2020', 'p2024']) {
+    for (const [fips, r] of sourceById[id]) {
       const c = counties[countyIndex.get(fips)];
       if (c && !c.fullName && r.name && !fips.startsWith('02')) c.fullName = r.name;
     }
@@ -244,37 +291,47 @@ async function main() {
     delete c.fullName;
   }
 
-  // --- Results per year, aligned with counties ---------------------------------
+  // --- Results per election, aligned with counties ------------------------------
   // Source FIPS -> shape FIPS. Falls Church is too small to survive the 10m
-  // simplification, so it's folded into surrounding Fairfax County. DC 2024 is
-  // reported by ward (11002-11008); those are summed into the single DC shape.
+  // simplification, so it's folded into surrounding Fairfax County; Bedford city
+  // (until 2013) into Bedford County. DC 2024 is reported by ward (11002-11008);
+  // those are summed into the single DC shape.
   const FIPS_ALIASES = { '46113': '46102', '51515': '51019', '51610': '51059' };
+  // Renamed counties: the old and new codes can both appear for the same year
+  // with the same numbers, so the old one is dropped when the new one is there.
+  const RENAMED = { '46113': '46102' }; // Shannon -> Oglala Lakota, SD (2015)
   const aliasFor = (fips) => (fips.startsWith('11') ? '11001' : FIPS_ALIASES[fips]);
   const results = {};
   const report = {};
-  for (const y of YEARS) {
-    const src = resultsByYear[y];
+  for (const id of ORDER) {
+    const e = ELECTIONS[id];
+    const src = sourceById[id];
     const arr = counties.map(() => null);
     const unmatched = [];
 
-    // Alaska: aggregate statewide, then spread evenly by land area so the
-    // state's density is uniform and its totals stay correct.
+    // Alaska: one statewide total, spread evenly by land area so the state's
+    // density is uniform and its totals stay correct. The multi-year file has a
+    // statewide row (02000 and/or 02020, sometimes both with the same numbers);
+    // tonmcg reports by district, so those rows are summed.
     const akRows = [...src.entries()].filter(([f]) => f.startsWith('02'));
-    let ak;
-    ak = akRows.reduce((s, [, r]) => ({ g: s.g + r.g, d: s.d + r.d, t: s.t + r.t }), { g: 0, d: 0, t: 0 });
+    const statewide = src.get('02000') ?? (e.source === 'multi' ? src.get('02020') : null);
+    const ak = statewide ?? akRows.reduce((s, [, r]) => ({ g: s.g + r.g, d: s.d + r.d, t: s.t + r.t }), { g: 0, d: 0, t: 0 });
     const akCounties = counties.map((c, i) => [c, i]).filter(([c]) => c.id.startsWith('02'));
     const akArea = akCounties.reduce((s, [c]) => s + c.a, 0);
-    for (const [c, i] of akCounties) {
-      const share = c.a / akArea;
-      arr[i] = [ak.g * share, ak.d * share, ak.t * share].map(Math.round).concat(FLAG_AK_STATEWIDE);
+    if (ak.t) {
+      for (const [c, i] of akCounties) {
+        const share = c.a / akArea;
+        arr[i] = [ak.g * share, ak.d * share, ak.t * share].map(Math.round).concat(FLAG_AK_STATEWIDE | (statewide?.flags ?? 0));
+      }
     }
 
-    // Connecticut 2024: planning regions -> legacy counties (approximate).
-    if (y === 2024 && src.has('09110')) {
+    // Connecticut 2024 (tonmcg): planning regions -> legacy counties (approximate).
+    const ctRegions = src.has('09110');
+    if (ctRegions) {
       const R = (f) => src.get(f);
       const sum = (...fs) => fs.map(R).reduce((s, r) => ({ g: s.g + r.g, d: s.d + r.d, t: s.t + r.t }), { g: 0, d: 0, t: 0 });
       const scale = (r, k) => ({ g: r.g * k, d: r.d * k, t: r.t * k });
-      const prev = resultsByYear[2020];
+      const prev = sourceById.p2020;
       const hartShare = prev.get('09003').t / (prev.get('09003').t + prev.get('09013').t);
       const crosswalk = {
         '09001': sum('09120', '09190'), // Fairfield <- Greater Bridgeport + Western CT
@@ -292,7 +349,8 @@ async function main() {
     }
 
     for (const [fips, r] of src) {
-      if (fips.startsWith('02') || (y === 2024 && fips.startsWith('091'))) continue;
+      if (fips.startsWith('02') || (ctRegions && fips.startsWith('091'))) continue;
+      if (RENAMED[fips] && src.has(RENAMED[fips])) continue;
       const idx = countyIndex.get(fips) ?? countyIndex.get(aliasFor(fips));
       if (idx === undefined) { unmatched.push(`${fips} (${r.state})`); continue; }
       if (arr[idx] && !(arr[idx][3] & (FLAG_AK_STATEWIDE | FLAG_CT_REGIONS))) {
@@ -302,9 +360,18 @@ async function main() {
       // Share of the expected vote counted, for results still being tallied.
       if (r.eevp !== undefined && r.eevp < 100) arr[idx][4] = r.eevp;
     }
-    const missing = counties.filter((_, i) => !arr[i]).map((c) => `${c.id} ${c.n}, ${c.s}`);
-    results[y] = arr;
-    report[y] = { unmatched, missing };
+    // Several states (FL, OK, LA, AR, ...) leave unopposed House races off the
+    // ballot, so counties wholly in such a district report no House votes. Flag
+    // them so the UI can explain. Hawaii (absent from the source) and DC (no
+    // voting seat) are excluded: the UI explains those separately.
+    if (e.race === 'House') {
+      counties.forEach((c, i) => {
+        if (!arr[i] && !c.id.startsWith('15') && !c.id.startsWith('11')) arr[i] = [0, 0, 0, FLAG_NO_RACE];
+      });
+    }
+    const missing = counties.filter((_, i) => !arr[i] || !arr[i][2]).map((c) => `${c.id} ${c.n}, ${c.s}`);
+    results[id] = arr;
+    report[id] = { unmatched, missing };
   }
 
   // --- State borders & national outline ----------------------------------------
@@ -316,13 +383,16 @@ async function main() {
       coordScale: COORD_SCALE,
       width: 975,
       height: 610,
-      years: YEARS,
-      elections: ELECTIONS,
-      flags: { ak: FLAG_AK_STATEWIDE, ct: FLAG_CT_REGIONS, uncontested: FLAG_UNCONTESTED, partial: FLAG_PARTIAL },
+      order: ORDER,
+      elections: Object.fromEntries(ORDER.map((id) => {
+        const { source, ...e } = ELECTIONS[id];
+        return [id, e];
+      })),
+      flags: { ak: FLAG_AK_STATEWIDE, ct: FLAG_CT_REGIONS, uncontested: FLAG_UNCONTESTED, partial: FLAG_PARTIAL, noRace: FLAG_NO_RACE },
       sources: [
         'County boundaries: U.S. Census Bureau via us-atlas 3.0.1',
-        'Presidential results: tonmcg/US_County_Level_Election_Results_08-24',
-        `2026 House results (unofficial, as of ${MIDTERM_AS_OF}): NYT/AP via mike10010100/elections-2026@${MIDTERM_COMMIT.slice(0, 7)}`,
+        '2020 and 2024 presidential results (and Hawaii/DC gaps 2008-2016): tonmcg/US_County_Level_Election_Results_08-24',
+        `2004-2016 presidential and 2004-2026 House results (2026 unofficial, as of ${MIDTERM_AS_OF}): NYT/AP via mike10010100/elections-2026@${MIDTERM_COMMIT.slice(0, 7)}`,
       ],
     },
     counties,
@@ -336,11 +406,13 @@ async function main() {
   await fs.writeFile(OUT, json);
 
   console.log(`\nWrote ${path.relative(ROOT, OUT)} (${(json.length / 1e6).toFixed(2)} MB), ${counties.length} counties`);
-  for (const y of YEARS) {
-    const tot = results[y].reduce((s, r) => (r ? [s[0] + r[0], s[1] + r[1], s[2] + r[2]] : s), [0, 0, 0]);
-    console.log(`  ${y}: R ${tot[0].toLocaleString()}  D ${tot[1].toLocaleString()}  total ${tot[2].toLocaleString()}`);
-    if (report[y].unmatched.length) console.log(`    unmatched source rows: ${report[y].unmatched.join(', ')}`);
-    if (report[y].missing.length) console.log(`    shapes with no result: ${report[y].missing.join('; ')}`);
+  for (const id of ORDER) {
+    const tot = results[id].reduce((s, r) => (r ? [s[0] + r[0], s[1] + r[1], s[2] + r[2]] : s), [0, 0, 0]);
+    const unc = results[id].filter((r) => r && r[3] & FLAG_UNCONTESTED).length;
+    console.log(`  ${id}: R ${tot[0].toLocaleString()}  D ${tot[1].toLocaleString()}  total ${tot[2].toLocaleString()}  uncontested ${unc}`);
+    if (report[id].unmatched.length) console.log(`    unmatched source rows: ${report[id].unmatched.join(', ')}`);
+    const m = report[id].missing;
+    if (m.length) console.log(`    shapes with no result (${m.length}): ${m.slice(0, 8).join('; ')}${m.length > 8 ? '; ...' : ''}`);
   }
 }
 

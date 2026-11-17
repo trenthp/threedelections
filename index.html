@@ -9,139 +9,183 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <canvas id="scene" aria-label="3D map of US presidential results by county"></canvas>
+    <canvas id="scene" aria-label="3D map of US election results by county"></canvas>
 
     <div id="loading" class="loading">Loading 3,100+ counties…</div>
     <noscript><div class="loading error">This map needs JavaScript and WebGL 2.</div></noscript>
 
+    <!-- On small screens the year bar and the county card move into the panel (see placeChrome in main.js). -->
     <aside class="panel" id="panel">
-      <header>
-        <h1>US elections in 3D</h1>
-        <p class="lede">
-          Each county is drawn as a block. Its footprint is the county's land area and its height is
-          <strong>votes cast per square mile</strong>, so each block's <strong>volume</strong> is proportional to the
-          votes cast there. Color shows the margin.
-        </p>
-      </header>
+      <div class="controls" id="controls">
+        <header>
+          <h1>US elections in 3D</h1>
+          <p class="lede">
+            Each county is a block. Its footprint is the county's land area and its height is
+            <strong>votes cast per square mile</strong>, so its <strong>volume</strong> is proportional to the votes cast
+            there. Color shows the margin.
+          </p>
+        </header>
 
-      <div class="control">
-        <span class="label">Election</span>
-        <div class="seg" id="year" role="radiogroup" aria-label="Election year"></div>
-        <p class="hint" id="year-hint" hidden></p>
+        <section class="stats" aria-live="polite">
+          <h2 id="stats-title">Who won what</h2>
+          <p class="hint" id="year-hint" hidden></p>
+          <div class="bar-row">
+            <span class="bar-label">Land area</span>
+            <div class="bar" id="bar-land"></div>
+          </div>
+          <div class="bar-row">
+            <span class="bar-label">Votes</span>
+            <div class="bar" id="bar-votes"></div>
+          </div>
+          <p class="stats-note" id="stats-note"></p>
+        </section>
+
+        <details class="options" id="options">
+          <summary><span class="options-title">Map options</span> <span class="options-summary" id="options-summary"></span></summary>
+          <div class="options-body">
+            <div class="control">
+              <span class="label">Height</span>
+              <div class="seg" id="measure" role="radiogroup" aria-label="Height">
+                <button data-v="flat">Flat 2D</button>
+                <button data-v="votes">Votes</button>
+                <button data-v="net">Net margin</button>
+              </div>
+              <p class="hint" id="mode-hint"></p>
+            </div>
+
+            <div class="control" id="scale-row">
+              <span class="label">Scale</span>
+              <div class="seg" id="scale" role="radiogroup" aria-label="Height scale">
+                <button data-v="linear">Linear</button>
+                <button data-v="sqrt">Square root</button>
+                <button data-v="log">Log</button>
+              </div>
+            </div>
+
+            <div class="control">
+              <label class="label" for="exag">Exaggeration <output id="exag-out">1.0×</output></label>
+              <input type="range" id="exag" min="0.2" max="5" step="0.1" value="1" />
+            </div>
+
+            <div class="control">
+              <span class="label">Color</span>
+              <div class="seg" id="color" role="radiogroup" aria-label="Color encoding">
+                <button data-v="margin">Margin</button>
+                <button data-v="weighted">Weighted</button>
+                <button data-v="radial">Radial</button>
+                <button data-v="winner">Winner</button>
+              </div>
+              <p class="hint" id="color-hint"></p>
+            </div>
+
+            <div class="control">
+              <div class="view-row">
+                <span class="label">View</span>
+                <div class="seg" id="view">
+                  <button data-v="tilt">Tilted</button>
+                  <button data-v="top">Top-down</button>
+                  <button data-v="low">Skyline</button>
+                </div>
+              </div>
+              <p class="hint">
+                <span class="for-mouse">Drag to rotate · right-drag to pan · scroll to zoom · <kbd>Space</kbd> flat/3D</span>
+                <span class="for-touch">Drag to rotate · pinch to zoom · two-finger drag to pan</span>
+              </p>
+            </div>
+          </div>
+        </details>
+
+        <details class="about">
+          <summary>How to read the map</summary>
+          <dl>
+            <dt>Election</dt>
+            <dd>
+              Pick <strong>President</strong> or <strong>House</strong> and a year from the bar under the map, or use
+              <kbd>←</kbd> <kbd>→</kbd> for the year and <kbd>↑</kbd> <kbd>↓</kbd> for the race. Dimmed years had no
+              race of that kind; clicking one switches race. House results sum every district's votes by county. Midterm
+              turnout is lower than in presidential years, so blocks are shorter and circles smaller.
+            </dd>
+            <dt>Pinned county</dt>
+            <dd>
+              Click or tap a county to pin its details. They stay put while you switch elections, and a chart shows the
+              county's margin in every election: solid dots for presidential races, hollow dots for House races (which
+              aren't directly comparable). Click a dot to jump to that election. Click the county again, press
+              <kbd>Esc</kbd> or use × to unpin. <strong>Copy link</strong> shares exactly what's on screen.
+            </dd>
+            <dt>Height</dt>
+            <dd>
+              <strong>Flat 2D</strong> is a standard map. <strong>Votes</strong> raises each county by votes cast per square mile.
+              <strong>Net margin</strong> raises it by the winner's vote lead per square mile, so close races stay low even in big cities.
+            </dd>
+            <dt>Scale</dt>
+            <dd>
+              How vote density turns into height. <strong>Linear</strong> is the most literal: block volume is proportional
+              to votes, so a few big cities tower over everything. <strong>Square root</strong> tames the tallest counties so
+              mid-sized ones are visible too. <strong>Log</strong> spreads out the smallest counties.
+            </dd>
+            <dt>Exaggeration</dt>
+            <dd>Stretches every block's height by the same factor. It makes short counties easier to see without changing how they compare.</dd>
+            <dt>Color</dt>
+            <dd>
+              <strong>Margin</strong> colors every county by how lopsided its result was, so large, sparse counties take up a lot
+              of the map. <strong>Weighted</strong> fades sparsely populated counties toward gray, so color strength follows where
+              people vote. <strong>Radial</strong> draws a circle in each county whose area is proportional to its votes, so the
+              amount of color matches the amount of voters. <strong>Winner</strong> uses a solid party color, however close the race.
+            </dd>
+            <dt>View</dt>
+            <dd>
+              Camera presets. Drag to rotate, right-drag (or two-finger drag) to pan, and scroll or pinch to zoom. Press
+              <kbd>Space</kbd> to switch between flat and 3D.
+            </dd>
+          </dl>
+          <p class="about-tip">
+            Height and color can both show how many people voted. For the most balanced picture, pair <strong>Votes</strong>
+            height with <strong>Radial</strong> or <strong>Weighted</strong> color. For the familiar election-night map, use
+            <strong>Flat 2D</strong> with <strong>Margin</strong>. The Land area and Votes bars above compare the two directly.
+          </p>
+        </details>
+
+        <details class="about">
+          <summary>About the data</summary>
+          <ul>
+            <li><strong>2020 and 2024 presidential</strong>: <a href="https://github.com/tonmcg/US_County_Level_Election_Results_08-24" target="_blank" rel="noopener">tonmcg/US_County_Level_Election_Results</a>. Boundaries: U.S. Census Bureau via <a href="https://github.com/topojson/us-atlas" target="_blank" rel="noopener">us-atlas</a>. Land area is computed from each county's real geographic area, not its on-screen size.</li>
+            <li><strong>2004–2016 presidential and 2004–2026 House</strong>: counts from The New York Times and the Associated Press, compiled by <a href="https://github.com/mike10010100/elections-2026" target="_blank" rel="noopener">mike10010100/elections-2026</a>. House results sum every district's votes by county.</li>
+            <li><strong>2026</strong> counts are <strong>unofficial</strong>. Some counties are still counting.</li>
+            <li><strong>Gaps:</strong> Hawaii presidential results for 2008–2016 and DC's for 2008 come from tonmcg's 2008–2016 file (Hawaii is within about 1% of certified totals). There are no Hawaii results for 2004, none for DC in 2004, 2012 or 2016, and no Hawaii House results before 2024. DC has no voting House seat.</li>
+            <li><strong>Uncontested House seats</strong> show one-sided margins and are faded in the county chart. Some states leave unopposed races off the ballot entirely (for example Florida, Oklahoma, Arkansas and Louisiana), so those counties have no House result that year.</li>
+            <li><strong>Alaska</strong> reports results by state house district, which don't line up with boroughs, so Alaska is shown as one uniform statewide result. Its 2022 House count is the first round of ranked-choice voting.</li>
+            <li><strong>Connecticut 2024</strong> results are reported by the new planning regions. They're mapped onto the legacy counties with an approximate crosswalk.</li>
+            <li>Alaska and Hawaii are drawn as insets at a different scale, so their volumes aren't comparable with the lower 48.</li>
+            <li>This is an independent visualization. It isn't affiliated with any campaign, party, news organization or election office.</li>
+          </ul>
+        </details>
       </div>
-
-      <div class="control" id="scale-row">
-        <span class="label">Scale</span>
-        <div class="seg" id="scale" role="radiogroup" aria-label="Height scale">
-          <button data-v="linear">Linear</button>
-          <button data-v="sqrt">Square root</button>
-          <button data-v="log">Log</button>
-        </div>
-      </div>
-
-      <div class="control">
-        <span class="label">Color</span>
-        <div class="seg" id="color" role="radiogroup" aria-label="Color encoding">
-          <button data-v="margin">Margin</button>
-          <button data-v="weighted">Weighted</button>
-          <button data-v="radial">Radial</button>
-          <button data-v="winner">Winner</button>
-        </div>
-        <p class="hint" id="color-hint"></p>
-      </div>
-
-      <div class="control">
-        <label class="label" for="exag">Exaggeration <output id="exag-out">1.0×</output></label>
-        <input type="range" id="exag" min="0.2" max="5" step="0.1" value="1" />
-      </div>
-
-      <div class="control">
-        <span class="label">Height</span>
-        <div class="seg" id="measure" role="radiogroup" aria-label="Height">
-          <button data-v="flat">Flat 2D</button>
-          <button data-v="votes">Votes</button>
-          <button data-v="net">Net margin</button>
-        </div>
-        <p class="hint" id="mode-hint"></p>
-      </div>
-
-      <div class="control row">
-        <span class="label">View</span>
-        <div class="seg" id="view">
-          <button data-v="tilt">Tilted</button>
-          <button data-v="top">Top-down</button>
-          <button data-v="low">Skyline</button>
-        </div>
-      </div>
-
-      <section class="stats" aria-live="polite">
-        <h2 id="stats-title">Who won what</h2>
-        <div class="bar-row">
-          <span class="bar-label">Land area</span>
-          <div class="bar" id="bar-land"></div>
-        </div>
-        <div class="bar-row">
-          <span class="bar-label">Votes</span>
-          <div class="bar" id="bar-votes"></div>
-        </div>
-        <p class="stats-note" id="stats-note"></p>
-      </section>
-
-      <details class="about">
-        <summary>How to read the controls</summary>
-        <dl>
-          <dt>Election</dt>
-          <dd>Picks the race. 2026 is a House midterm with lower turnout than a presidential year, so blocks are shorter and circles smaller.</dd>
-          <dt>Scale</dt>
-          <dd>
-            How vote density turns into height. <strong>Linear</strong> is the most literal: block volume is proportional
-            to votes, so a few big cities tower over everything. <strong>Square root</strong> tames the tallest counties so
-            mid-sized ones are visible too. <strong>Log</strong> spreads out the smallest counties. Scale has no effect when
-            Height is Flat 2D.
-          </dd>
-          <dt>Color</dt>
-          <dd>
-            <strong>Margin</strong> colors every county by how lopsided its result was, so large, sparse counties take up a lot
-            of the map. <strong>Weighted</strong> fades sparsely populated counties toward gray, so color strength follows where
-            people vote. <strong>Radial</strong> draws a circle in each county whose area is proportional to its votes, so the
-            amount of color matches the amount of voters. <strong>Winner</strong> uses a solid party color, however close the race.
-          </dd>
-          <dt>Exaggeration</dt>
-          <dd>Stretches every block's height by the same factor. It makes short counties easier to see without changing how they compare.</dd>
-          <dt>Height</dt>
-          <dd>
-            <strong>Flat 2D</strong> is a standard map. <strong>Votes</strong> raises each county by votes cast per square mile.
-            <strong>Net margin</strong> raises it by the winner's vote lead per square mile, so close races stay low even in big cities.
-          </dd>
-          <dt>View</dt>
-          <dd>Camera presets. Drag to rotate, right-drag to pan, scroll to zoom, and press <kbd>Space</kbd> to switch between flat and 3D.</dd>
-        </dl>
-        <p class="about-tip">
-          Height and color can both show how many people voted. For the most balanced picture, pair <strong>Votes</strong>
-          height with <strong>Radial</strong> or <strong>Weighted</strong> color. For the familiar election-night map, use
-          <strong>Flat 2D</strong> with <strong>Margin</strong>. The Land area and Votes bars above compare the two directly.
-        </p>
-      </details>
-
-      <details class="about">
-        <summary>About the data</summary>
-        <ul>
-          <li>2020 and 2024 county results: <a href="https://github.com/tonmcg/US_County_Level_Election_Results_08-24" target="_blank" rel="noopener">tonmcg/US_County_Level_Election_Results</a>. Boundaries: U.S. Census Bureau via <a href="https://github.com/topojson/us-atlas" target="_blank" rel="noopener">us-atlas</a>. Land area is computed from each county's real geographic area, not its on-screen size.</li>
-          <li><strong>2026 is the U.S. House midterm</strong> (there's no presidential race), with every district's votes summed by county. These are <strong>unofficial</strong> counts from The New York Times and the Associated Press, compiled by <a href="https://github.com/mike10010100/elections-2026" target="_blank" rel="noopener">mike10010100/elections-2026</a>. Some counties are still counting, and counties with an uncontested seat show one-sided margins. Turnout is lower in midterms, so blocks are shorter than in presidential years.</li>
-          <li><strong>Alaska</strong> reports results by state house district, which don't line up with boroughs, so Alaska is shown as one uniform statewide result.</li>
-          <li><strong>Connecticut 2024</strong> results are reported by the new planning regions. They're mapped onto the legacy counties with an approximate crosswalk.</li>
-          <li>Alaska and Hawaii are drawn as insets at a different scale, so their volumes aren't comparable with the lower 48.</li>
-          <li>2016 is omitted because the available county file is a pre-certification snapshot whose totals don't match official results.</li>
-          <li>This is an independent visualization. It isn't affiliated with any campaign, party, news organization or election office.</li>
-        </ul>
-      </details>
     </aside>
+
+    <div class="yearbar" id="yearbar">
+      <div class="yearbar-row">
+        <div class="seg race" id="race" role="group" aria-label="Race">
+          <button data-v="pres">President</button>
+          <button data-v="house">House</button>
+        </div>
+        <div class="timeline-wrap">
+          <button class="year-step" id="year-prev" aria-label="Previous election">‹</button>
+          <div class="timeline" id="year" role="group" aria-label="Election year"></div>
+          <button class="year-step" id="year-next" aria-label="Next election">›</button>
+        </div>
+      </div>
+      <p class="yearbar-tip">
+        <span id="election-caption"></span>
+        <span class="for-mouse"> · Click a county to pin it · <kbd>←</kbd><kbd>→</kbd> year · <kbd>↑</kbd><kbd>↓</kbd> race</span>
+        <span class="for-touch"> · Tap a county for details</span>
+      </p>
+    </div>
+
+    <section class="card" id="card" aria-label="Pinned county" aria-live="polite" hidden></section>
 
     <div class="legend" id="legend" aria-hidden="true"></div>
 
     <div class="tooltip" id="tooltip" role="status" hidden></div>
-
-    <p class="help">Drag to rotate · Right-drag to pan · Scroll to zoom · <kbd>Space</kbd> toggles 2D/3D</p>
 
     <script type="module" src="/src/main.js"></script>
   </body>

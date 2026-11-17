@@ -1,6 +1,6 @@
 # Election Map in 3D
 
-US presidential (2020, 2024) and House midterm (2026) results by county, in 3D. Each county is a prism:
+US presidential (2004–2024) and House (2004–2026) results by county, in 3D. Each county is a prism:
 
 - **Footprint** = the county's land area
 - **Height** = votes cast per square mile
@@ -20,6 +20,18 @@ Color options:
 
 Height options: **Flat 2D** (standard map), **Votes** (votes per sq mi) or **Net margin** (the leading candidate's vote
 lead per sq mi), on a **linear** (volume ∝ votes), **square-root** or **log** scale.
+
+Pick **President** or **House** and a year from the bar under the map (←/→ step through years, ↑/↓ switch race).
+Years without that race stay on the timeline, dimmed; clicking one switches race. Click or tap a county to pin it: its
+details stay on screen while you switch elections, with a chart of its margin in every election (solid dots presidential,
+hollow dots House; click a dot to jump there) and the shift since the previous race of the same kind. On small screens
+the pinned county takes over the bottom sheet.
+
+The URL hash mirrors what's on screen, so any view can be shared: e.g. `#y=2020&c=04013&col=margin&v=top` opens 2020
+with Maricopa County pinned, margin colors and the top-down camera. Keys: `y` year, `r=house` for the House race in a
+presidential year (a year with only a House race needs no `r`), `c` pinned county FIPS, `h`
+height (`flat`/`votes`/`net`), `s` scale (`linear`/`sqrt`/`log`), `col` color, `x` exaggeration, `v` camera preset or
+`cam` (camera x,y,z and target x,y,z). Settings at their default are left out. The pinned card has a Copy link button.
 
 ## Run it
 
@@ -51,24 +63,37 @@ result.
 
 ## Data notes
 
-- Results: [tonmcg/US_County_Level_Election_Results_08-24](https://github.com/tonmcg/US_County_Level_Election_Results_08-24).
+Elections are keyed by id (`p2024` presidential, `h2022` House) in `election.json`, since presidential years also have
+House races.
+
+- **2020 and 2024 presidential**: [tonmcg/US_County_Level_Election_Results_08-24](https://github.com/tonmcg/US_County_Level_Election_Results_08-24).
   Shapes: U.S. Census via [us-atlas](https://github.com/topojson/us-atlas) 3.0.1. Land area is geodesic (true sq mi),
   not projected size.
-- **2026 is the U.S. House midterm**: every district's votes summed by county. These are **unofficial** NYT/AP counts
-  compiled by [mike10010100/elections-2026](https://github.com/mike10010100/elections-2026), pinned to a commit in
-  `scripts/build-data.mjs` (`MIDTERM_COMMIT`). To refresh, bump the SHA and `MIDTERM_AS_OF`, delete
+- **2004–2016 presidential and 2004–2026 House**: NYT/AP counts compiled by
+  [mike10010100/elections-2026](https://github.com/mike10010100/elections-2026), one file with keys `p04`…`p16` and
+  `h04`…`h26`, pinned to a commit in `scripts/build-data.mjs` (`MIDTERM_COMMIT`). House results sum every district's
+  votes by county. 2026 is **unofficial**: to refresh, bump the SHA and `MIDTERM_AS_OF`, delete
   `data-raw/2026-house.json`, and run `npm run data`. Counties still under 95% of the expected vote, and counties where
-  a major party had no candidate, are flagged in the tooltip. DC has no voting House seat, so it has no 2026 result.
-  That repo has no license. Vote counts are public facts, but credit the NYT/AP if you publish the site.
-- **Alaska** reports by state house district, not borough, so it's drawn as one uniform statewide result.
-- **Connecticut 2024** is reported by planning region. It's mapped to the legacy counties with an approximate crosswalk
-  (see `scripts/build-data.mjs`).
-- **DC 2024** wards are summed. **Falls Church, VA** is merged into Fairfax because it's too small for the 10m shapes.
-- **2016** is omitted. The available county file is a pre-certification snapshot (e.g. CA is ~1.4M votes short).
+  a major party had no candidate, are flagged in the tooltip. That repo has no license. Vote counts are public facts,
+  but credit the NYT/AP if you publish the site.
+- **Hawaii and DC**: the multi-year file has no Hawaii or DC presidential rows. Hawaii 2008–2016 and DC 2008 come from
+  tonmcg's 2008–2016 file (Hawaii within ~1% of certified totals); its DC 2012/2016 rows are well short of certified
+  totals, so they're left out. No Hawaii results for 2004, no DC for 2004/2012/2016, and no Hawaii House results before
+  2024. DC has no voting House seat.
+- **Uncontested House seats**: some states (FL, OK, AR, LA, ...) leave unopposed races off the ballot, so counties wholly
+  in such a district report no House votes that year. They're flagged so the UI can explain.
+- **Alaska** reports by state house district, not borough, so it's drawn as one uniform statewide result. Its 2022
+  House count is the first round of ranked-choice voting.
+- **Connecticut 2024 presidential** is reported by planning region. It's mapped to the legacy counties with an
+  approximate crosswalk (see `scripts/build-data.mjs`).
+- **DC 2024** wards are summed. **Falls Church, VA** is merged into Fairfax because it's too small for the 10m shapes,
+  and **Bedford city, VA** (until 2013) into Bedford County. **Shannon County, SD** is mapped to its new code (Oglala
+  Lakota).
+- tonmcg's own 2016 file is a pre-certification snapshot (e.g. CA is ~1.4M votes short), so 2016 uses the multi-year file.
 
 ## How it works
 
 All ~3,100 counties are one merged mesh (~320k vertices, ~185k triangles). Each vertex carries its county id and a top/bottom flag.
 Per-county color and height live in a small float texture, and the vertex shader lifts the "top" vertices. Switching
-year or mode only rewrites ~3k texels and crossfades two textures, so transitions are smooth. Hover uses GPU picking:
+election or mode only rewrites ~3k texels and crossfades two textures, so transitions are smooth. Hover uses GPU picking:
 county ids are rendered into a 1×1 target under the cursor.
