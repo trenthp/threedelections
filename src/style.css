@@ -5,7 +5,7 @@
   --panel-border: rgba(255, 255, 255, 0.08);
   --ink: #eceae4;
   --ink-2: #b4b2ab;
-  --ink-3: #7f7e79;
+  --ink-3: #8a8984;
   --accent: #eceae4;
   --seg-bg: rgba(255, 255, 255, 0.05);
   --seg-on: rgba(255, 255, 255, 0.16);
@@ -16,12 +16,29 @@
   --rep-text: #f08f84;
   --sheet-bg: #14161c;
   --radius: 10px;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: Rubik, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.45;
 }
 
 * { box-sizing: border-box; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+button, summary {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* no double-tap-zoom delay */
+}
 
 html, body {
   margin: 0;
@@ -68,6 +85,7 @@ html, body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 
 h1 {
@@ -134,6 +152,94 @@ h1 {
 .seg button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid #9cc0ee; outline-offset: 2px; }
 
 input[type='range'] { width: 100%; accent-color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- search */
+
+.search { position: relative; }
+.search-icon {
+  position: absolute;
+  left: 11px;
+  top: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+.search input {
+  width: 100%;
+  height: 37px;
+  padding: 0 32px 0 34px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--seg-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search input::placeholder { color: var(--ink-3); }
+.search input:focus { border-color: #9cc0ee; background: rgba(255, 255, 255, 0.07); }
+.search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.search-key { position: absolute; right: 9px; top: 9px; pointer-events: none; }
+.search input:focus ~ .search-key, .search input:not(:placeholder-shown) ~ .search-key { display: none; }
+.search-list {
+  margin: 6px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.03);
+}
+.search-list[hidden] { display: none; }
+.search-list [role='option'] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.search-list [role='option']:hover { background: rgba(255, 255, 255, 0.06); }
+.search-list [role='option'].on { background: var(--seg-on); }
+.so-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.so-state { color: var(--ink-3); }
+.so-margin { flex: none; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.so-margin.d { color: var(--dem-text); }
+.so-margin.r { color: var(--rep-text); }
+.search-empty { padding: 7px 8px; font-size: 13px; color: var(--ink-3); }
+
+/* ---------------------------------------------------------------- reset view */
+
+/* Shown once the camera leaves a preset; main.js places it beside the panel or below the header. */
+.reset-view {
+  position: fixed;
+  top: 16px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 13px 0 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.reset-view svg { width: 15px; height: 15px; }
+.reset-view:hover { background: rgba(40, 43, 52, 0.92); }
+.reset-view:focus-visible { outline: 2px solid #9cc0ee; outline-offset: 2px; }
+.reset-view[hidden] { display: none; }
 
 /* ---------------------------------------------------------------- stats */
 
@@ -241,6 +347,47 @@ input[type='range'] { width: 100%; accent-color: var(--ink-2); }
   -webkit-backdrop-filter: blur(12px);
 }
 .legend-ramp { height: 10px; border-radius: 4px; }
+
+/* Small-screen header (what election, what the map shows). Hidden on wide screens, where the panel says it. */
+.legend-head { display: none; }
+.lh-row { display: flex; align-items: center; gap: 8px; }
+.lh-title { flex: 1; min-width: 0; margin: 0; font-size: 14px; line-height: 1.3; }
+.lh-title strong { font-weight: 600; }
+.lh-title .badge { margin: 0 0 0 2px; vertical-align: 1px; }
+.lh-sub { margin: 2px 0 0; font-size: 12px; line-height: 1.35; color: var(--ink-2); }
+.lh-help {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin: -4px -4px -4px 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 50%;
+  background: var(--seg-bg);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lh-help.on, .lh-help:hover { background: var(--seg-on); color: var(--ink); }
+.lh-help:focus-visible { outline: 2px solid #9cc0ee; outline-offset: 2px; }
+/* Opens over the map, so the map doesn't re-fit. */
+.lh-more {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  padding: 10px 12px;
+  background: rgba(18, 20, 26, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.lh-more strong { color: var(--ink); font-weight: 600; }
+.lh-more[hidden] { display: none; }
 .legend-title { margin-bottom: 6px; font-size: 11.5px; color: var(--ink-2); }
 .legend-part + .legend-part { margin-top: 10px; }
 .legend-grid-row {
@@ -372,7 +519,7 @@ input[type='range']:disabled { opacity: 0.4; }
 }
 .tl-year:hover { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
 /* A year the current race wasn't held: still on the axis, clicking switches race. */
-.tl-year.other { color: var(--ink-3); font-weight: 400; opacity: 0.6; }
+.tl-year.other { color: var(--ink-3); font-weight: 400; }
 .tl-year.on { background: var(--seg-on); color: var(--ink); opacity: 1; }
 .tl-year:focus-visible, .race button:focus-visible { outline: 2px solid #9cc0ee; outline-offset: 2px; }
 .tl-year .ys { display: none; }
@@ -391,6 +538,8 @@ input[type='range']:disabled { opacity: 0.4; }
 .year-step:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
 .year-step:disabled { opacity: 0.25; cursor: default; }
 .year-step:focus-visible, .card button:focus-visible { outline: 2px solid #9cc0ee; outline-offset: 2px; }
+.sheet-grip { display: none; }
+
 .yearbar-tip {
   margin: 0;
   color: var(--ink-3);
@@ -506,7 +655,7 @@ input[type='range']:disabled { opacity: 0.4; }
 
 /* ---------------------------------------------------------------- small screens */
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) {
   /* Fixed height, so the map doesn't re-zoom when the sheet switches between controls and a county. */
   .panel {
     top: auto;
@@ -515,26 +664,31 @@ input[type='range']:disabled { opacity: 0.4; }
     right: 0;
     width: auto;
     height: 46%;
+    height: 46svh; /* the small viewport, so browser toolbars showing and hiding don't re-zoom the map */
     max-height: none;
     border-radius: 14px 14px 0 0;
-    padding: 0 16px 10px;
+    padding: 0 calc(16px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
   }
-  h1 { font-size: 19px; }
-  .lede { font-size: 12.5px; margin-bottom: 12px; }
-  /* The legend becomes a slim strip across the top; resize() fits the map below it. */
+  /* The header at the top of the screen carries the reading guide, so the sheet goes title, then results. */
+  h1 { font-size: 17px; margin-bottom: 10px; }
+  .lede { display: none; }
+  .stats { margin-top: 12px; padding-top: 12px; }
+
+  /* The legend becomes a header strip across the top; resize() fits the map below it. */
   .legend {
-    top: 10px;
-    left: 12px;
-    right: 12px;
+    top: calc(10px + env(safe-area-inset-top));
+    left: calc(12px + env(safe-area-inset-left));
+    right: calc(12px + env(safe-area-inset-right));
     bottom: auto;
     width: auto;
-    display: flex;
-    align-items: flex-end;
-    gap: 16px;
-    padding: 8px 10px;
+    padding: 9px 12px 8px;
   }
-  .legend > * { flex: 1; min-width: 0; }
-  .legend > .legend-circles { flex: none; }
+  .legend { z-index: 5; } /* its help popover opens over the reset button */
+  .reset-view { right: calc(12px + env(safe-area-inset-right)); }
+  .legend-head { display: block; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border); }
+  .legend-body { display: flex; align-items: flex-end; gap: 16px; }
+  .legend-body > * { flex: 1; min-width: 0; }
+  .legend-body > .legend-circles { flex: none; }
   .legend-part + .legend-part { margin-top: 0; }
   .legend-title { margin-bottom: 4px; font-size: 11px; }
   .legend-labels { margin-top: 4px; font-size: 11px; }
@@ -553,8 +707,9 @@ input[type='range']:disabled { opacity: 0.4; }
     z-index: 2;
     align-items: stretch;
     gap: 4px;
-    margin: 0 -16px 12px;
-    padding: 10px 16px 8px;
+    margin: 0 calc(-16px - env(safe-area-inset-right)) 0 calc(-16px - env(safe-area-inset-left));
+    padding: 10px calc(16px + env(safe-area-inset-right)) 8px calc(16px + env(safe-area-inset-left));
+    touch-action: none; /* dragging the bar resizes the sheet instead of scrolling it */
     background: var(--sheet-bg);
     border-bottom: 1px solid var(--panel-border);
   }
@@ -574,6 +729,8 @@ input[type='range']:disabled { opacity: 0.4; }
   .tl-year { flex: 1; padding: 5px 0; font-size: 12px; }
   .year-step { display: none; }
   .yearbar-tip { text-align: center; font-size: 11.5px; text-shadow: none; }
+  /* The header at the top already names the election. */
+  .yearbar-tip #election-caption, .yearbar-tip .tip-sep { display: none; }
   .panel.has-card .yearbar-tip { display: none; }
 
   /* The county card replaces the controls in the sheet. */
@@ -589,4 +746,60 @@ input[type='range']:disabled { opacity: 0.4; }
     -webkit-backdrop-filter: none;
   }
   .panel.has-card .controls { display: none; }
+  .panel.has-card .card { padding-top: 12px; }
+  .panel:not(.has-card) .controls { padding-top: 12px; }
+
+  /* The grip that resizes the bottom sheet. */
+  .yearbar { padding-top: 0; }
+  .sheet-grip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: grab;
+  }
+  .sheet-grip span { width: 38px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); }
+  .sheet-grip:hover span { background: rgba(255, 255, 255, 0.45); }
+  .sheet-grip:focus-visible { outline: 2px solid #9cc0ee; outline-offset: -2px; border-radius: 8px; }
+  .panel.peek { overflow: hidden; }
+}
+
+/* Phones held sideways (and other short, wide screens): the sheet becomes a column on the left. */
+@media (min-width: 721px) and (max-height: 500px) {
+  .panel {
+    top: 0;
+    bottom: 0;
+    width: min(340px, 44vw);
+    height: auto;
+    border-radius: 0 14px 14px 0;
+  }
+  .legend { left: calc(min(340px, 44vw) + 12px + env(safe-area-inset-left)); }
+  .yearbar { padding-top: 10px; touch-action: auto; }
+  .sheet-grip { display: none; }
+  .panel.peek { overflow-y: auto; } /* rotated while the bottom sheet was collapsed */
+}
+
+/* ---------------------------------------------------------------- touch targets */
+
+/* Fingers need bigger targets than a mouse: aim for 40px or more. */
+@media (pointer: coarse) {
+  .seg button, .options .seg button { min-height: 40px; }
+  .tl-year { min-height: 40px; }
+  .race button { min-height: 36px; }
+  .year-step { min-width: 40px; }
+  .options summary, .about summary { padding: 10px 0; }
+  .options, .about { padding-top: 0; }
+  .about + .about { margin-top: 0; }
+  input[type='range'] { height: 32px; }
+  .card-close { width: 40px; height: 40px; margin: -8px -10px 0 -4px; }
+  .card-link { height: 34px; margin-top: -4px; padding: 0 12px; }
+  .lh-help { width: 36px; height: 36px; margin: -6px -6px -6px 0; }
+  .search input { height: 44px; font-size: 16px; }
+  .search-icon { top: 14px; }
+  .search-list [role='option'] { padding: 11px 8px; font-size: 14px; }
+  .reset-view { height: 40px; }
 }

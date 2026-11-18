@@ -31,12 +31,62 @@ function modeHint() {
   return `Height = ${m.what}, ${SCALE_HINTS[state.scale]}`;
 }
 
+/**
+ * How to read the map with the current settings: a full sentence for the intro
+ * (and the small-screen help popover) and a one-line summary for the
+ * small-screen header. Built from state so a shared link with other settings
+ * never shows a description of a different map.
+ */
+function readingGuide() {
+  const { measure, scale, color } = state;
+  const net = measure === 'net';
+  const linear = scale === 'linear';
+  const scaleName = scale === 'sqrt' ? 'square-root' : 'log';
+
+  let long;
+  let height = null;
+  if (measure === 'flat') {
+    long = 'Each county is drawn at its land area, as on a standard map. ';
+  } else {
+    const what = net ? "the winner's vote lead per square mile" : 'votes per square mile';
+    long = `Each county stands on its land area. <strong>Height</strong> is ${what}, ` +
+      (linear ? `so a block's <strong>volume</strong> is its ${net ? 'net vote lead' : 'vote count'}. ` : `${SCALE_HINTS[scale]} `);
+    height = linear
+      ? `Block volume = ${net ? 'net vote lead' : 'votes cast'}`
+      : `Height = ${net ? 'vote lead' : 'votes'} per sq mi (${scaleName} scale)`;
+  }
+
+  let colorShort;
+  if (color === 'radial') {
+    long += `The <strong>circle</strong> in each county grows with votes cast${measure === 'votes' ? ' too' : ''}, ` +
+      'and its <strong>color</strong> shows who won and by how much. Dark gray is land with few voters.';
+    colorShort = 'circle size = votes cast · color = margin';
+  } else if (color === 'weighted') {
+    long += '<strong>Color</strong> shows who won and by how much, fading toward gray where few people vote.';
+    colorShort = 'color = margin, faded where few vote';
+  } else if (color === 'winner') {
+    long += '<strong>Color</strong> shows who won each county, however close.';
+    colorShort = 'color = county winner';
+  } else {
+    long += '<strong>Color</strong> shows who won and by how much: the deeper the color, the bigger the margin.';
+    colorShort = 'color = margin';
+  }
+
+  let short = height ? `${height} · ${colorShort}` : colorShort;
+  if (measure === 'votes' && linear && color === 'radial') short = 'Volume & circle size = votes · color = margin';
+  return { long, short: short[0].toUpperCase() + short.slice(1) };
+}
+
 const MAX_HEIGHT = 160; // world units for the densest county (map is ~975 wide)
 const ANIM_MS = 1100;
 const BEACON_HEIGHT = 34; // world units the pinned-county marker rises above its block
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Matches the small-screen breakpoint in style.css: the panel becomes a bottom sheet.
-const sheetQuery = window.matchMedia('(max-width: 720px)');
+// Match the small-screen breakpoints in style.css. On small screens the panel
+// becomes a sheet: along the bottom in portrait (resizable), or a column on the
+// left on short landscape screens such as phones held sideways.
+const sheetQuery = window.matchMedia('(max-width: 720px), (max-height: 500px)');
+const sideQuery = window.matchMedia('(min-width: 721px) and (max-height: 500px)');
+const bottomSheet = () => sheetQuery.matches && !sideQuery.matches;
 
 const state = {
   election: '', // id like 'p2024' or 'h2022'; set at startup (latest, or from a shared link)
@@ -322,6 +372,22 @@ function updateModeUI() {
   $('exag').disabled = flat;
   $('exag').closest('.control').classList.toggle('disabled', flat);
   syncOptionsSummary();
+  updateGuide();
+}
+
+function updateGuide() {
+  const g = readingGuide();
+  $('lede').innerHTML = g.long;
+  $('lh-more').innerHTML = g.long;
+  $('lh-sub').textContent = g.short;
+  // The summary can change the small-screen header's height, which the map fits below.
+  resize();
+}
+
+function setHelpOpen(open) {
+  $('lh-more').hidden = !open;
+  $('lh-help').setAttribute('aria-expanded', open);
+  $('lh-help').classList.toggle('on', open);
 }
 
 // The collapsed "Map options" row still says what the map is showing.
@@ -375,6 +441,7 @@ function setExaggeration(x) {
 
 function setView(view) {
   state.view = view;
+  state.lastView = view; // what "Reset view" returns to
   syncs.view?.();
   flyTo(view);
   scheduleLink();
@@ -565,9 +632,13 @@ function setupUI() {
     $('year-prev').disabled = id === ids[0];
     $('year-next').disabled = id === ids[ids.length - 1];
     const e = E(id);
+    const title = isHouse(id) ? `${e.year} House${e.year % 4 ? ' midterm' : ''}` : `${e.year} President`;
     $('election-caption').innerHTML = isHouse(id)
-      ? `<strong>${e.year} House${e.year % 4 ? ' midterm' : ''}</strong> · districts summed by county`
-      : `<strong>${e.year} President</strong> · ${esc(e.sub)}`;
+      ? `<strong>${title}</strong> · districts summed by county`
+      : `<strong>${title}</strong> · ${esc(e.sub)}`;
+    $('lh-title').innerHTML =
+      `<strong>${title}</strong>${isHouse(id) ? '' : ` <span class="muted">· ${esc(e.sub)}</span>`}` +
+      (e.unofficial ? ' <span class="badge">Unofficial</span>' : '');
   };
   syncElection();
   $('year-prev').addEventListener('click', () => stepElection(-1));
@@ -577,7 +648,15 @@ function setupUI() {
   syncMeasure = setupSeg('measure', 'measure', (v) => setMeasure(v));
   syncs.scale = setupSeg('scale', 'scale', (v) => setScale(v));
   syncs.color = setupSeg('color', 'color', (v) => setColor(v));
-  syncs.view = setupSeg('view', 'view', (v) => setView(v));
+  // "Reset view" appears once the camera leaves a preset (a drag, a zoom, a searched county).
+  const syncViewSeg = setupSeg('view', 'view', (v) => setView(v));
+  syncs.view = () => {
+    syncViewSeg();
+    $('reset-view').hidden = Boolean(state.view);
+  };
+  $('reset-view').addEventListener('click', () => setView(state.lastView ?? LINK_DEFAULTS.view));
+  setupSearch();
+  setupSheet();
   // Leaving a camera preset takes an actual drag or zoom, not just a click (which pins a county).
   let userCamera = false;
   controls.addEventListener('start', () => { userCamera = true; });
@@ -599,6 +678,10 @@ function setupUI() {
   setExaggeration(state.exaggeration);
 
   updateColorUI();
+
+  // Small-screen header: "?" opens the full reading guide over the map.
+  $('lh-help').addEventListener('click', () => setHelpOpen($('lh-more').hidden));
+  canvas.addEventListener('pointerdown', () => setHelpOpen(false));
 
   // A link pasted into the same tab only changes the hash; apply it.
   window.addEventListener('hashchange', () => applyLink(readLink()));
@@ -622,8 +705,13 @@ function setupUI() {
       // Up/down switch race; scrollable areas keep their arrow keys.
       e.preventDefault();
       setRace(e.key === 'ArrowUp' ? 'pres' : 'house');
+    } else if (e.key === 'Escape' && !$('lh-more').hidden) {
+      setHelpOpen(false);
     } else if (e.key === 'Escape' && state.selected >= 0) {
       setSelected(-1);
+    } else if (e.key === '/' && !e.target.closest('input, select, textarea') && $('county-search').offsetParent) {
+      e.preventDefault();
+      $('county-search').focus();
     } else if (e.code === 'Space' && !e.target.closest('input, button, summary, a')) {
       e.preventDefault();
       setMeasure(state.measure === 'flat' ? state.lastMeasure : 'flat');
@@ -702,16 +790,18 @@ function updateColorUI() {
     const sample = marginColor(-0.4);
     // Two parts: stacked on desktop, side by side in the strip on small screens.
     html =
-      `<div class="legend-part"><div class="legend-ramp" style="background:${legendGradient()}"></div>${labelHtml}</div>` +
-      `<div class="legend-part legend-circles"><div class="legend-title">Circle area ∝ votes cast</div>` +
+      `<div class="legend-part"><div class="legend-title">Margin</div><div class="legend-ramp" style="background:${legendGradient()}"></div>${labelHtml}</div>` +
+      `<div class="legend-part legend-circles"><div class="legend-title">Bigger circle = more votes</div>` +
       `<div class="legend-swatches">${RADIAL_SWATCHES.map((d) =>
         `<div><div class="legend-swatch" style="background:${radialSwatch(sample, radialFill(d))}"></div><span>${density(d, RADIAL_FULL_DENSITY)}</span></div>`,
       ).join('')}<span class="legend-unit">votes per<br>sq mi</span></div></div>`;
   } else {
-    html = `<div class="legend-ramp" style="background:${mode === 'winner' ? winnerGradient() : legendGradient()}"></div>${labelHtml}`;
+    html =
+      `<div class="legend-title">${mode === 'winner' ? 'County winner' : 'Margin'}</div>` +
+      `<div class="legend-ramp" style="background:${mode === 'winner' ? winnerGradient() : legendGradient()}"></div>${labelHtml}`;
   }
-  $('legend').innerHTML = mode === 'radial' ? html : `<div class="legend-part">${html}</div>`;
-  resize?.();
+  $('legend-body').innerHTML = mode === 'radial' ? html : `<div class="legend-part">${html}</div>`;
+  updateGuide();
 }
 
 function updateYearHint() {
@@ -757,6 +847,139 @@ function setBarLabels(id, pairs) {
     el.after(lab);
   }
   lab.innerHTML = pairs.map(([n, s], i) => `<span class="${i ? 'r' : 'd'}">${n} ${pct(s)}</span>`).join('');
+}
+
+// ---------------------------------------------------------------------------
+// County search: type a name (and optionally a state or its abbreviation, e.g.
+// "cook il"), pick a match, and the county is pinned and brought into view.
+
+const STATE_ABBR = Object.fromEntries(
+  ('Alabama AL|Alaska AK|Arizona AZ|Arkansas AR|California CA|Colorado CO|Connecticut CT|Delaware DE|District of Columbia DC|' +
+    'Florida FL|Georgia GA|Hawaii HI|Idaho ID|Illinois IL|Indiana IN|Iowa IA|Kansas KS|Kentucky KY|Louisiana LA|Maine ME|' +
+    'Maryland MD|Massachusetts MA|Michigan MI|Minnesota MN|Mississippi MS|Missouri MO|Montana MT|Nebraska NE|Nevada NV|' +
+    'New Hampshire NH|New Jersey NJ|New Mexico NM|New York NY|North Carolina NC|North Dakota ND|Ohio OH|Oklahoma OK|' +
+    'Oregon OR|Pennsylvania PA|Rhode Island RI|South Carolina SC|South Dakota SD|Tennessee TN|Texas TX|Utah UT|Vermont VT|' +
+    'Virginia VA|Washington WA|West Virginia WV|Wisconsin WI|Wyoming WY')
+    .split('|').map((x) => [x.slice(0, -3), x.slice(-2)]),
+);
+const MAX_MATCHES = 8;
+const fold = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const words = (s) => fold(s).split(/[^a-z0-9]+/).filter(Boolean);
+let searchIndex = null;
+
+/** County indexes matching the query, best first: name matches, then bigger counties. */
+function searchCounties(query) {
+  const tokens = words(query);
+  if (!tokens.length) return [];
+  searchIndex ??= data.counties.map((c, i) => ({
+    i,
+    name: fold(c.n),
+    nameWords: words(c.n),
+    abbr: (STATE_ABBR[c.s] ?? '').toLowerCase(),
+    all: words(`${c.n} ${c.s} ${STATE_ABBR[c.s] ?? ''}`),
+  }));
+  const vals = derived[state.election];
+  const found = [];
+  for (const e of searchIndex) {
+    if (!tokens.every((t) => e.all.some((w) => w.startsWith(t)))) continue;
+    // "washington pa": a whole word that is the county's state abbreviation names
+    // the state, so it ranks above a name that merely starts with it (Washington Parish).
+    const stateHit = tokens.length > 1 && tokens.includes(e.abbr);
+    const nameTokens = stateHit ? tokens.filter((t) => t !== e.abbr) : tokens;
+    const rank = e.name.startsWith(nameTokens.join(' ')) ? 0 : e.nameWords.some((w) => w.startsWith(nameTokens[0])) ? 1 : 2;
+    found.push([stateHit ? 0 : 1, rank, -(vals[e.i]?.t ?? 0), e.i]);
+  }
+  found.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  return found.slice(0, MAX_MATCHES).map((f) => f[3]);
+}
+
+/** Moves the camera over a county, close enough to see its neighbors, keeping the current angle. */
+function focusCounty(i) {
+  const center = new THREE.Vector3(data.shape.centers[i * 2], data.shape.centers[i * 2 + 1], 0);
+  const offset = camera.position.clone().sub(controls.target);
+  // camera.zoom is lower on narrow screens, so scale the distance with it to frame the same area.
+  offset.setLength(Math.min(offset.length(), Math.max(650 * camera.zoom, controls.minDistance * 2)));
+  setCamera([...center.clone().add(offset).toArray(), ...center.toArray()]);
+}
+
+function setupSearch() {
+  const input = $('county-search');
+  const list = $('search-list');
+  let results = [];
+  let active = -1;
+
+  const close = () => {
+    list.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  };
+  const render = () => {
+    const vals = derived[state.election];
+    list.innerHTML = results.length
+      ? results.map((i, k) => {
+        const c = data.counties[i];
+        const v = vals[i];
+        const margin = v ? `<span class="so-margin ${v.margin >= 0 ? 'd' : 'r'}">${marginLabel(v.margin)}</span>` : '';
+        return `<li role="option" id="search-opt-${k}" data-i="${i}" aria-selected="${k === active}"${k === active ? ' class="on"' : ''}>` +
+          `<span class="so-name">${esc(c.n)}${c.n === c.s ? '' : ` <span class="so-state">${esc(c.s)}</span>`}</span>${margin}</li>`;
+      }).join('')
+      : '<li class="search-empty" role="presentation">No matching county</li>';
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    if (active >= 0) {
+      input.setAttribute('aria-activedescendant', `search-opt-${active}`);
+      list.children[active]?.scrollIntoView({ block: 'nearest' });
+    } else input.removeAttribute('aria-activedescendant');
+  };
+  const choose = (i) => {
+    input.value = '';
+    results = [];
+    close();
+    input.blur();
+    setSelected(i);
+    focusCounty(i);
+    if (bottomSheet()) setSnap('half');
+  };
+
+  input.addEventListener('input', () => {
+    if (!input.value.trim()) { results = []; close(); return; }
+    results = searchCounties(input.value);
+    active = results.length ? 0 : -1;
+    render();
+  });
+  input.addEventListener('keydown', (e) => {
+    // Keys typed here never reach the map's shortcuts (Esc would unpin).
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!results.length) return;
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length;
+      render();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (results[active] !== undefined) choose(results[active]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (!list.hidden) close();
+      else if (input.value) input.value = '';
+      else input.blur();
+    }
+  });
+  // pointerdown + preventDefault keeps focus in the field, so blur doesn't close the list first.
+  list.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const li = e.target.closest('[data-i]');
+    if (li) choose(Number(li.dataset.i));
+  });
+  input.addEventListener('focus', () => {
+    // Make room for the matches (and the on-screen keyboard).
+    if (bottomSheet()) {
+      setSnap('full');
+      $('panel').scrollTop = 0; // the field sits near the top of the sheet
+    }
+    if (input.value.trim()) render();
+  });
+  input.addEventListener('blur', close);
 }
 
 // ---------------------------------------------------------------------------
@@ -829,10 +1052,12 @@ function positionTooltip() {
   if (x + r.width > window.innerWidth - 8) x = pointer.x - r.width - pad;
   // On small screens the panel is a bottom sheet; keep the tooltip above it.
   const panel = $('panel').getBoundingClientRect();
-  const bottom = sheetQuery.matches ? panel.top : window.innerHeight;
+  const bottom = bottomSheet() ? panel.top : window.innerHeight;
   if (y + r.height > bottom - 8) y = pointer.y - r.height - pad;
   y = Math.min(y, bottom - r.height - 8);
-  tooltip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+  // ...and below the header across the top, which says what the map shows.
+  const top = sheetQuery.matches ? $('legend').getBoundingClientRect().bottom + 8 : 8;
+  tooltip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(top, y)}px)`;
 }
 
 // Pinned card
@@ -971,17 +1196,107 @@ function renderCard() {
     chartHtml(id);
   // On small screens the card replaces the controls in the sheet; start at its top.
   if (sheetQuery.matches && !wasShowing) panel.scrollTop = 0;
+  // A county pinned while the sheet is collapsed needs room to show.
+  if (bottomSheet() && !wasShowing && sheet.snap === 'peek') setSnap('half');
 }
 
 // ---------------------------------------------------------------------------
 // Layout
 
-/** The year bar and card float over the map on wide screens and live in the bottom sheet on small ones. */
+/** The year bar and card float over the map on wide screens and live in the sheet on small ones. */
 function placeChrome() {
   const panel = $('panel');
   const yearbar = $('yearbar');
   if (sheetQuery.matches) panel.prepend(yearbar, card);
   else document.body.append(yearbar, card);
+}
+
+// Bottom sheet (portrait small screens): three resting heights. "peek" shows
+// just the year bar, "half" is the default, "full" covers the map but leaves
+// the header at the top visible. Drag the grip or the year bar, or tap the grip.
+const SNAPS = ['peek', 'half', 'full'];
+const sheet = { snap: 'half', anim: null, dragging: false };
+
+function snapHeight(name) {
+  const h = window.innerHeight;
+  const half = Math.round(h * 0.46);
+  if (name === 'half') return half;
+  if (name === 'peek') return $('yearbar').offsetHeight + parseFloat(getComputedStyle($('panel')).paddingBottom);
+  return Math.max(half, Math.round(h - $('legend').getBoundingClientRect().bottom - 8));
+}
+
+function setSheetHeight(px) {
+  $('panel').style.height = `${Math.round(px)}px`;
+  layoutView();
+}
+
+function setSnap(name, animate = true) {
+  sheet.snap = name;
+  $('sheet-grip').setAttribute('aria-label', name === 'full' ? 'Collapse panel' : 'Expand panel');
+  $('panel').classList.toggle('peek', name === 'peek');
+  if (!bottomSheet()) return;
+  const to = snapHeight(name);
+  const from = $('panel').offsetHeight;
+  if (!animate || reducedMotion || Math.abs(to - from) < 2) {
+    sheet.anim = null;
+    setSheetHeight(to);
+  } else {
+    sheet.anim = { from, to, start: performance.now(), dur: 280 };
+  }
+}
+
+function setupSheet() {
+  const panel = $('panel');
+  const yearbar = $('yearbar');
+  let drag = null;
+  let dragged = false;
+  yearbar.addEventListener('pointerdown', (e) => {
+    if (!bottomSheet() || e.button > 0) return;
+    // Year and race buttons keep their taps; the grip and the bar's empty space drag.
+    if (e.target.closest('button:not(.sheet-grip)')) return;
+    drag = { id: e.pointerId, y: e.clientY, h: panel.offsetHeight, samples: [[e.timeStamp, e.clientY]], grip: Boolean(e.target.closest('.sheet-grip')) };
+    dragged = false;
+    // Keep receiving moves once the pointer leaves the bar.
+    try { yearbar.setPointerCapture(e.pointerId); } catch {}
+  });
+  yearbar.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = e.clientY - drag.y;
+    if (!dragged) {
+      if (Math.abs(dy) < 6) return;
+      dragged = true;
+      sheet.dragging = true;
+      sheet.anim = null;
+    }
+    setSheetHeight(Math.min(Math.max(drag.h - dy, snapHeight('peek')), snapHeight('full')));
+    drag.samples.push([e.timeStamp, e.clientY]);
+    if (drag.samples.length > 6) drag.samples.shift();
+  });
+  const end = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (dragged) {
+      // A quick flick goes to the next height in that direction; otherwise the nearest.
+      const [t0, y0] = drag.samples[0];
+      const [t1, y1] = drag.samples[drag.samples.length - 1];
+      const v = t1 > t0 ? (y1 - y0) / (t1 - t0) : 0; // px/ms, positive = down
+      const now = panel.offsetHeight;
+      const heights = SNAPS.map((n) => [n, snapHeight(n)]);
+      let target;
+      if (v < -0.4) target = heights.find(([, h]) => h > now + 1)?.[0] ?? 'full';
+      else if (v > 0.4) target = heights.filter(([, h]) => h < now - 1).pop()?.[0] ?? 'peek';
+      else target = heights.reduce((a, b) => (Math.abs(b[1] - now) < Math.abs(a[1] - now) ? b : a))[0];
+      sheet.dragging = false;
+      setSnap(target);
+    } else if (drag.grip && e.type === 'pointerup') {
+      toggle();
+    }
+    drag = null;
+  };
+  const toggle = () => setSnap(sheet.snap === 'half' ? 'full' : 'half');
+  yearbar.addEventListener('pointerup', end);
+  yearbar.addEventListener('pointercancel', end);
+  // Pointer taps are handled above (capture retargets their click); this is Enter/Space.
+  $('sheet-grip').addEventListener('click', (e) => { if (e.detail === 0) toggle(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -1014,26 +1329,46 @@ function applyViewShift() {
 
 function resize() {
   if (!data) return;
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+  const panel = $('panel');
+  if (!bottomSheet()) panel.style.height = '';
+  else if (!sheet.dragging) {
+    sheet.anim = null;
+    panel.style.height = `${snapHeight(sheet.snap)}px`;
+  }
+  layoutView();
+}
+
+/** Fits the map to the area the panel and legend leave free. Cheap enough to call every frame. */
+function layoutView() {
+  if (!data) return;
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
   camera.aspect = w / h;
 
   const panel = $('panel').getBoundingClientRect();
   const yearbar = $('yearbar');
   const legend = $('legend');
+  const reset = $('reset-view');
   legend.style.bottom = '';
   let visW = w;
   let visH = h;
   if (sheetQuery.matches) {
     yearbar.style.left = '';
     card.style.maxHeight = '';
-    // The map gets the strip between the legend (top) and the sheet (bottom).
+    // The map gets the area below the legend and beside or above the sheet.
     const top = legend.getBoundingClientRect().bottom + 4;
-    const bottom = Math.min(panel.top, h);
+    let left = 0;
+    let bottom = h;
+    if (sideQuery.matches) left = panel.right;
+    // Above half height the sheet covers the map instead of squeezing it further.
+    else bottom = Math.min(h, Math.max(panel.top, h - snapHeight('half')));
+    visW = w - left;
     visH = Math.max(bottom - top, h * 0.25);
-    viewShift.x = 0;
+    viewShift.x = left / 2;
     viewShift.y = (top + bottom) / 2 - h / 2;
+    reset.style.left = '';
+    reset.style.top = `${top + 6}px`;
   } else {
     visW = w - panel.right;
     viewShift.x = panel.right / 2;
@@ -1046,6 +1381,8 @@ function resize() {
     if (yb.right > legend.getBoundingClientRect().left - 12) legend.style.bottom = `${h - yb.top + 10}px`;
     // Keep the card clear of the legend.
     card.style.maxHeight = `${legend.getBoundingClientRect().top - 16 - 12}px`;
+    reset.style.left = `${panel.right + 16}px`;
+    reset.style.top = '';
   }
   // Zoom so the whole country fits the visible area. The vertical FOV spans the
   // full canvas height, so both fits are relative to h.
@@ -1067,6 +1404,12 @@ function frame(now) {
     camera.position.lerpVectors(camAnim.fromPos, camAnim.pos, t);
     controls.target.lerpVectors(camAnim.fromTarget, camAnim.target, t);
     if (t >= 1) camAnim = null;
+  }
+  if (sheet.anim) {
+    const t = Math.min((now - sheet.anim.start) / sheet.anim.dur, 1);
+    const e = 1 - Math.pow(1 - t, 3);
+    setSheetHeight(sheet.anim.from + (sheet.anim.to - sheet.anim.from) * e);
+    if (t >= 1) sheet.anim = null;
   }
   controls.update();
 
@@ -1097,7 +1440,10 @@ load()
     setupUI();
     resize();
     window.addEventListener('resize', resize);
+    // The web font changes the year bar's width, which positions it and the legend.
+    document.fonts?.ready.then(resize);
     sheetQuery.addEventListener('change', () => { placeChrome(); resize(); });
+    sideQuery.addEventListener('change', resize);
     // Both textures start flat; the rise to the chosen height animates below.
     writeTarget(texTo);
     texFrom.set(texTo);

@@ -5,7 +5,11 @@ US presidential (2004–2024) and House (2004–2026) results by county, in 3D. 
 - **Footprint** = the county's land area
 - **Height** = votes cast per square mile
 - **Volume** = footprint × height = **votes cast**
-- **Color** = margin (blue ↔ gray ↔ red)
+- **Circle** (the default color mode) = a disc on each county whose area is proportional to votes cast, colored by
+  margin (blue ↔ gray ↔ red). The rest of the county is dark gray, so the amount of color matches the number of voters.
+
+The intro text and the small-screen header describe whatever combination is on screen (`readingGuide()` in
+`src/main.js`), so a shared link with other settings is still explained correctly.
 
 Color options:
 
@@ -13,7 +17,7 @@ Color options:
   don't carry extra visual weight just for being lopsided.
 - **Weighted**: margin color whose strength follows vote density (log scale, full at 1,000 votes/sq mi). Sparse
   counties fade toward dark gray, so the color tracks where people vote rather than how much land there is.
-- **Radial**: each county has a sharp-edged circle at its center covering a share of the footprint equal to
+- **Radial** (default): each county has a sharp-edged circle at its center covering a share of the footprint equal to
   density ÷ 300 votes/sq mi, so its **area is proportional to votes cast**. Combined with height, votes show up both
   as volume and as colored area.
 - **Winner**: solid party color.
@@ -25,7 +29,14 @@ Pick **President** or **House** and a year from the bar under the map (←/→ s
 Years without that race stay on the timeline, dimmed; clicking one switches race. Click or tap a county to pin it: its
 details stay on screen while you switch elections, with a chart of its margin in every election (solid dots presidential,
 hollow dots House; click a dot to jump there) and the shift since the previous race of the same kind. On small screens
-the pinned county takes over the bottom sheet.
+the panel becomes a bottom sheet with the year bar on top, a header across the top of the screen names the
+election and summarizes what height and color mean (**?** opens the full explanation), and the pinned county takes over
+the sheet. Drag the sheet's grip (or tap it) to switch between collapsed, half and full height. On short landscape
+screens (phones held sideways) the sheet is a column on the left instead.
+
+**Find a county** searches by name, optionally with a state or its abbreviation (`cook il`, `washington pa`); matches
+are ranked by votes cast, and picking one pins it and flies the camera there. Press `/` to jump to the search box. Once
+the camera leaves a preset, a **Reset view** button brings it back.
 
 The URL hash mirrors what's on screen, so any view can be shared: e.g. `#y=2020&c=04013&col=margin&v=top` opens 2020
 with Maricopa County pinned, margin colors and the top-down camera. Keys: `y` year, `r=house` for the House race in a
@@ -60,6 +71,13 @@ The build is a static site (`dist/`) with relative paths, so it works on any sta
 
 The deploy uses the committed `public/data/election.json`. To update the data, run `npm run data` locally and commit the
 result.
+
+## Link previews
+
+`index.html` has Open Graph and Twitter tags pointing at `https://trenthp.github.io/threedelections/og.png`
+(`public/og.png`, 1200×630). Scrapers need an absolute URL, so update `og:image` if the site moves. The image is a
+render of the default 2024 view with the panel hidden and the title drawn in Rubik; regenerate it by hand if the map's
+look changes.
 
 ## Data notes
 

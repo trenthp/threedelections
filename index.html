@@ -2,9 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0f13" />
     <title>Election Map in 3D</title>
-    <meta name="description" content="US election results by county in 3D. Each county's height is votes cast per square mile, so its volume is proportional to votes cast." />
+    <meta name="description" content="US presidential and House results by county, 2004–2026, in 3D. Counties rise by votes per square mile, and a circle sized by votes cast shows who won where people actually vote." />
+    <!-- Link previews. Scrapers need an absolute image URL; update it if the site moves. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="US elections in 3D" />
+    <meta property="og:description" content="Presidential and House results by county, 2004–2026. Counties rise by votes per square mile, and a circle sized by votes cast shows who won where people actually vote." />
+    <meta property="og:image" content="https://trenthp.github.io/threedelections/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="3D map of US counties, raised by votes per square mile, with circles colored by margin" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400..700&display=swap" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='14' width='7' height='15' rx='1' fill='%23d9473d'/%3E%3Crect x='12.5' y='4' width='7' height='25' rx='1' fill='%233b7fd6'/%3E%3Crect x='22' y='19' width='7' height='10' rx='1' fill='%23d9473d'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
@@ -19,12 +32,22 @@
       <div class="controls" id="controls">
         <header>
           <h1>US elections in 3D</h1>
-          <p class="lede">
-            Each county is a block. Its footprint is the county's land area and its height is
-            <strong>votes cast per square mile</strong>, so its <strong>volume</strong> is proportional to the votes cast
-            there. Color shows the margin.
+          <!-- Rewritten by updateGuide() in main.js to match the current settings; this is the default view. -->
+          <p class="lede" id="lede">
+            Each county stands on its land area. <strong>Height</strong> is votes per square mile, so a block's
+            <strong>volume</strong> is its vote count. The <strong>circle</strong> in each county grows with votes cast
+            too, and its <strong>color</strong> shows who won and by how much. Dark gray is land with few voters.
           </p>
         </header>
+
+        <div class="search" id="search">
+          <label class="sr-only" for="county-search">Find a county</label>
+          <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <input id="county-search" type="search" placeholder="Find a county" autocomplete="off" spellcheck="false"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-list" enterkeyhint="go" />
+          <kbd class="search-key for-mouse" aria-hidden="true">/</kbd>
+          <ul class="search-list" id="search-list" role="listbox" aria-label="Matching counties" hidden></ul>
+        </div>
 
         <section class="stats" aria-live="polite">
           <h2 id="stats-title">Who won what</h2>
@@ -45,7 +68,7 @@
           <div class="options-body">
             <div class="control">
               <span class="label">Height</span>
-              <div class="seg" id="measure" role="radiogroup" aria-label="Height">
+              <div class="seg" id="measure" role="group" aria-label="Height">
                 <button data-v="flat">Flat 2D</button>
                 <button data-v="votes">Votes</button>
                 <button data-v="net">Net margin</button>
@@ -55,7 +78,7 @@
 
             <div class="control" id="scale-row">
               <span class="label">Scale</span>
-              <div class="seg" id="scale" role="radiogroup" aria-label="Height scale">
+              <div class="seg" id="scale" role="group" aria-label="Height scale">
                 <button data-v="linear">Linear</button>
                 <button data-v="sqrt">Square root</button>
                 <button data-v="log">Log</button>
@@ -69,7 +92,7 @@
 
             <div class="control">
               <span class="label">Color</span>
-              <div class="seg" id="color" role="radiogroup" aria-label="Color encoding">
+              <div class="seg" id="color" role="group" aria-label="Color encoding">
                 <button data-v="margin">Margin</button>
                 <button data-v="weighted">Weighted</button>
                 <button data-v="radial">Radial</button>
@@ -81,7 +104,7 @@
             <div class="control">
               <div class="view-row">
                 <span class="label">View</span>
-                <div class="seg" id="view">
+                <div class="seg" id="view" role="group" aria-label="Camera view">
                   <button data-v="tilt">Tilted</button>
                   <button data-v="top">Top-down</button>
                   <button data-v="low">Skyline</button>
@@ -107,7 +130,8 @@
             </dd>
             <dt>Pinned county</dt>
             <dd>
-              Click or tap a county to pin its details. They stay put while you switch elections, and a chart shows the
+              Click or tap a county to pin its details, or find it with the search box (press <kbd>/</kbd> to jump
+              there; you can add a state, as in “cook il”). Details stay put while you switch elections, and a chart shows the
               county's margin in every election: solid dots for presidential races, hollow dots for House races (which
               aren't directly comparable). Click a dot to jump to that election. Click the county again, press
               <kbd>Esc</kbd> or use × to unpin. <strong>Copy link</strong> shares exactly what's on screen.
@@ -134,8 +158,9 @@
             </dd>
             <dt>View</dt>
             <dd>
-              Camera presets. Drag to rotate, right-drag (or two-finger drag) to pan, and scroll or pinch to zoom. Press
-              <kbd>Space</kbd> to switch between flat and 3D.
+              Camera presets. Drag to rotate, right-drag (or two-finger drag) to pan, and scroll or pinch to zoom.
+              <strong>Reset view</strong> appears once you've moved the camera. Press <kbd>Space</kbd> to switch between
+              flat and 3D. On a phone, drag the bar at the top of the panel to make it smaller or larger.
             </dd>
           </dl>
           <p class="about-tip">
@@ -163,6 +188,8 @@
     </aside>
 
     <div class="yearbar" id="yearbar">
+      <!-- Small screens only: drag or tap to resize the bottom sheet. -->
+      <button class="sheet-grip" id="sheet-grip" aria-label="Expand panel"><span></span></button>
       <div class="yearbar-row">
         <div class="seg race" id="race" role="group" aria-label="Race">
           <button data-v="pres">President</button>
@@ -177,13 +204,29 @@
       <p class="yearbar-tip">
         <span id="election-caption"></span>
         <span class="for-mouse"> · Click a county to pin it · <kbd>←</kbd><kbd>→</kbd> year · <kbd>↑</kbd><kbd>↓</kbd> race</span>
-        <span class="for-touch"> · Tap a county for details</span>
+        <span class="for-touch"><span class="tip-sep"> · </span>Tap a county for details</span>
       </p>
     </div>
 
     <section class="card" id="card" aria-label="Pinned county" aria-live="polite" hidden></section>
 
-    <div class="legend" id="legend" aria-hidden="true"></div>
+    <div class="legend" id="legend">
+      <!-- Small screens only: says what's on the map, since the panel is a bottom sheet there. -->
+      <div class="legend-head">
+        <div class="lh-row">
+          <p class="lh-title" id="lh-title"></p>
+          <button class="lh-help" id="lh-help" aria-expanded="false" aria-controls="lh-more" aria-label="How to read the map">?</button>
+        </div>
+        <p class="lh-sub" id="lh-sub"></p>
+        <div class="lh-more" id="lh-more" hidden></div>
+      </div>
+      <div class="legend-body" id="legend-body" aria-hidden="true"></div>
+    </div>
+
+    <button class="reset-view" id="reset-view" hidden>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 6.2A5 5 0 1 1 3 9.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2.6 2.8v3.6h3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Reset view
+    </button>
 
     <div class="tooltip" id="tooltip" role="status" hidden></div>
 
